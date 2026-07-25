@@ -1,7 +1,8 @@
 from fastapi import FastAPI, Request
 import httpx
 from database import SessionLocal
-from models import Empresa, Servico
+from models import Empresa
+from conversa import processar_mensagem
 
 app = FastAPI()
 
@@ -39,7 +40,7 @@ async def receber_mensagem(request: Request):
         if not empresa:
             return {"status": "empresa_nao_encontrada"}
 
-        resposta = montar_resposta(db, empresa, texto)
+        resposta = processar_mensagem(db, empresa, numero, texto)
 
         if resposta:
             async with httpx.AsyncClient() as client:
@@ -52,20 +53,3 @@ async def receber_mensagem(request: Request):
         db.close()
 
     return {"status": "ok"}
-
-
-def montar_resposta(db, empresa: Empresa, texto: str) -> str | None:
-    texto_lower = texto.lower()
-
-    if "ola" in texto_lower or "olá" in texto_lower or "oi" in texto_lower:
-        servicos = db.query(Servico).filter_by(empresa_id=empresa.id, ativo=True).all()
-
-        linhas = [f"Olá! Bem-vindo(a) à {empresa.nome} 😊", "", "Nossos serviços:"]
-        for s in servicos:
-            linhas.append(f"• {s.nome} — R$ {s.preco:.2f}")
-        linhas.append("")
-        linhas.append("Digite o nome do serviço que deseja agendar.")
-
-        return "\n".join(linhas)
-
-    return None
