@@ -1,0 +1,13 @@
+.env
+**/.env
+
+# Ambiente virtual Python
+venv/
+**/venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# Arquivos temporários gerados
+qrcode.png
+**/qrcode.png
