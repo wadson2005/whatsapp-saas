@@ -1,18 +1,48 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 import httpx
+from sqlalchemy import text
+from admin import admin_app
+from config import settings
 from database import SessionLocal
 from models import Empresa
+from redis_client import redis_cliente
 from conversa import processar_mensagem
+from schema import ensure_schema
 
 app = FastAPI()
+app.mount("/admin", admin_app)
 
-EVOLUTION_URL = "http://localhost:8080"
-EVOLUTION_API_KEY = "62257eae0c33e45e97912a5584c070ac"
+EVOLUTION_URL = settings.evolution_url
+EVOLUTION_API_KEY = settings.evolution_api_key
 
 
 @app.get("/")
 async def raiz():
     return {"status": "meu bot está de pé"}
+
+
+@app.get("/healthz")
+async def healthz():
+    return {"status": "ok"}
+
+
+@app.get("/readyz")
+async def readyz():
+    db = SessionLocal()
+    try:
+        db.execute(text("SELECT 1"))
+        redis_cliente.ping()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="servico_indisponivel") from exc
+    finally:
+        db.close()
+
+    return {"status": "ok", "database": "ok", "redis": "ok"}
+
+
+@app.on_event("startup")
+async def startup_schema():
+    ensure_schema()
 
 
 def extrair_conteudo(dados: dict) -> tuple[str | None, str | None]:

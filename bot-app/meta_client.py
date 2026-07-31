@@ -1,11 +1,8 @@
-import os
 import httpx
-from dotenv import load_dotenv
+from config import settings
 
-load_dotenv()
-
-META_TOKEN = os.getenv("META_TOKEN")
-META_PHONE_NUMBER_ID = os.getenv("META_PHONE_NUMBER_ID")
+META_TOKEN = settings.meta_token
+META_PHONE_NUMBER_ID = settings.meta_phone_number_id
 META_API_URL = f"https://graph.facebook.com/v21.0/{META_PHONE_NUMBER_ID}/messages"
 
 
@@ -50,6 +47,21 @@ async def enviar_lista(numero: str, texto: str, titulo_botao: str, secoes: list[
     lista da Meta em vez de botões, que tem limite de 3.
     secoes: [{"titulo": "Serviços", "linhas": [{"id": "...", "titulo": "...", "descricao": "..."}]}]
     """
+    MAX_LINHAS_TOTAL = 10
+    secoes_limitadas = []
+    linhas_restantes = MAX_LINHAS_TOTAL
+
+    for secao in secoes:
+        if linhas_restantes <= 0:
+            break
+
+        linhas = secao.get("linhas", [])[:linhas_restantes]
+        if not linhas:
+            continue
+
+        secoes_limitadas.append({"titulo": secao["titulo"], "linhas": linhas})
+        linhas_restantes -= len(linhas)
+
     payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
@@ -68,7 +80,7 @@ async def enviar_lista(numero: str, texto: str, titulo_botao: str, secoes: list[
                             for l in s["linhas"]
                         ],
                     }
-                    for s in secoes
+                    for s in secoes_limitadas
                 ],
             },
         },

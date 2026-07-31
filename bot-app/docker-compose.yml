@@ -1,0 +1,17 @@
+services:
+  bot-app:
+    build:
+      context: .
+    container_name: bot-app
+    restart: always
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      PYTHONUNBUFFERED: "1"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

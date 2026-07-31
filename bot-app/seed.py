@@ -1,19 +1,20 @@
 from database import SessionLocal
 from models import Empresa, Servico
+from config import settings
 
 db = SessionLocal()
 
-empresa_existente = db.query(Empresa).filter_by(slug="sorriso-feliz").first()
+empresa_existente = db.query(Empresa).filter_by(slug=settings.seed_empresa_slug).first()
 
 if empresa_existente:
     print("Empresa de teste já existe, nada a fazer.")
 else:
     empresa = Empresa(
-        nome="Clínica Sorriso Feliz",
-        slug="sorriso-feliz",
-        segmento="clinica",
-        telefone_whatsapp="5586999999999",
-        evolution_instance_name="teste-aprendizado",
+        nome=settings.seed_empresa_nome,
+        slug=settings.seed_empresa_slug,
+        segmento=settings.seed_empresa_segmento,
+        telefone_whatsapp=settings.seed_empresa_telefone_whatsapp,
+        evolution_instance_name=settings.seed_empresa_evolution_instance_name,
     )
     db.add(empresa)
     db.commit()

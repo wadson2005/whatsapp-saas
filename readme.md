@@ -2,7 +2,7 @@
 
 Sistema de automação de atendimento via WhatsApp pensado para atender várias empresas com o mesmo código-base. A ideia central é simples: cada cliente é um registro no banco, e a lógica do bot decide o fluxo da conversa a partir da empresa que recebeu a mensagem.
 
-> Status atual: protótipo funcional e demonstrável. O fluxo principal de atendimento já funciona, mas ainda há lacunas importantes de produto, segurança e manutenção antes de considerar uso comercial.
+> Status atual: plataforma funcional em evolução. O fluxo principal de atendimento, o painel administrativo e o motor de agendamento já estão operacionais e validados em runtime.
 
 ## Visão geral
 
@@ -17,7 +17,7 @@ O caminho de execução hoje é este:
 2. A Evolution API dispara um webhook para o FastAPI em `bot-app/main.py`.
 3. O bot identifica a instância, procura a empresa correspondente e verifica se ela está ativa.
 4. A conversa continua em Redis, com estado por telefone e expiração automática.
-5. O agendamento é gravado no PostgreSQL.
+5. O agendamento é gravado no PostgreSQL com regras reais de disponibilidade, conflito, reagendamento e cancelamento.
 6. A resposta volta por texto simples via Evolution API ou por mensagens interativas via Meta Graph API.
 
 ## Stack técnica
@@ -30,7 +30,9 @@ O caminho de execução hoje é este:
 | Integração WhatsApp | Evolution API | Recebe mensagens e envia textos simples |
 | Mensagens interativas | Meta Graph API | Envia botões e listas, contornando limitações observadas na Evolution API |
 | Infraestrutura | Docker + Docker Compose | Sobe Postgres, Redis e Evolution API |
-| Execução do bot | systemd | Mantém o `bot-app` ativo na VPS |
+| Execução do bot | Docker + systemd | Mantém o `bot-app` ativo na VPS |
+| Saúde do serviço | `/healthz` e `/readyz` | Permitem checagem simples e validação de banco/Redis |
+| Painel administrativo | FastAPI + Jinja2 + Bootstrap | Interface web para operação sem terminal |
 | Proxy reverso | Caddy | Encaminha o domínio público para a aplicação |
 
 ## Estrutura do projeto
@@ -41,6 +43,14 @@ O caminho de execução hoje é este:
 ├── bot-app.service
 ├── readme.md
 ├── bot-app/
+│   ├── .dockerignore
+│   ├── .env
+│   ├── .env.example
+│   ├── Dockerfile
+│   ├── docker-compose.yml
+│   ├── config.py
+│   ├── admin.py
+│   ├── requirements.txt
 │   ├── conversa.py
 │   ├── criar_tabelas.py
 │   ├── database.py
@@ -50,6 +60,16 @@ O caminho de execução hoje é este:
 │   ├── pausar.py
 │   ├── redis_client.py
 │   ├── retomar.py
+│   ├── templates/
+│   │   └── admin/
+│   │       ├── agendamentos_list.html
+│   │       ├── base.html
+│   │       ├── dashboard.html
+│   │       ├── empresa_form.html
+│   │       ├── empresas_list.html
+│   │       ├── login.html
+│   │       ├── servico_form.html
+│   │       └── servicos_list.html
 │   └── seed.py
 └── evolution/
     ├── botoes.json
@@ -61,6 +81,8 @@ O caminho de execução hoje é este:
 
 ### O que cada parte faz
 
+- [bot-app/config.py](/home/wadson/stack/bot-app/config.py) centraliza a configuração da aplicação com Pydantic Settings.
+- [bot-app/admin.py](/home/wadson/stack/bot-app/admin.py) implementa login, dashboard e CRUD administrativo.
 - [bot-app/main.py](/home/wadson/stack/bot-app/main.py) recebe o webhook e dispara o processamento da mensagem.
 - [bot-app/conversa.py](/home/wadson/stack/bot-app/conversa.py) contém a máquina de estados da conversa.
 - [bot-app/models.py](/home/wadson/stack/bot-app/models.py) define o modelo de dados principal.
@@ -95,20 +117,27 @@ Também existem atalhos de controle como `menu`, `voltar` e `cancelar`, que rein
 
 O que já existe e funciona hoje:
 
+- Configuração centralizada em [bot-app/config.py](/home/wadson/stack/bot-app/config.py).
+- Arquivo de exemplo de ambiente em [bot-app/.env.example](/home/wadson/stack/bot-app/.env.example).
+- Dependências fixadas em [bot-app/requirements.txt](/home/wadson/stack/bot-app/requirements.txt).
+- Bot containerizado com [bot-app/Dockerfile](/home/wadson/stack/bot-app/Dockerfile) e [bot-app/docker-compose.yml](/home/wadson/stack/bot-app/docker-compose.yml).
+- Rotas de saúde `/healthz` e `/readyz` ativas no FastAPI.
+- Painel administrativo com login, dashboard, cadastro de empresas, cadastro de serviços e listagem de agendamentos.
 - Recebimento de webhooks da Evolution API.
 - Identificação da empresa pela instância recebida no payload.
 - Máquina de estados com Redis e expiração de 30 minutos.
 - Cadastro de empresa, serviços e cliente final.
-- Registro de agendamento no banco.
+- Registro de agendamento no banco com validação de janela, conflito e horário de funcionamento.
+- Reagendamento e cancelamento operacionais no fluxo do bot.
 - Envio de mensagens interativas pela Meta Graph API.
 - Script de seed com uma empresa de teste: `Clínica Sorriso Feliz`.
 - Scripts simples para pausar e retomar a empresa de teste.
+- Bootstrap automático de schema para ambientes já existentes.
 
 O que ainda está faltando para virar produto de fato:
 
-- Painel administrativo web.
+- Multi-tenant mais robusto, com papéis de usuário e permissões no painel.
 - Cadastro e manutenção de clientes sem terminal.
-- Regras reais de agenda, horários disponíveis e conflito de horários.
 - Fluxo de cobrança.
 - Observabilidade e auditoria mais completas.
 - Testes automatizados.
@@ -117,12 +146,17 @@ O que ainda está faltando para virar produto de fato:
 
 Esses pontos aparecem no código atual e devem ser tratados como limitações reais, não como detalhe de documentação.
 
-- [bot-app/main.py](/home/wadson/stack/bot-app/main.py) ainda tem credenciais e URL da Evolution API codificadas em constantes, em vez de carregar tudo de variáveis de ambiente.
-- [bot-app/conversa.py](/home/wadson/stack/bot-app/conversa.py) grava `datetime.utcnow()` no campo `data_hora`, então o horário pedido pelo usuário ainda não é convertido em data real de agendamento.
+- O fluxo ainda depende de regras explícitas e botões/listas; não há NLP nem IA generativa no entendimento de mensagem.
 - O reconhecimento de botões/listas ainda depende bastante do texto exibido; o `id` da interação existe no webhook, mas não é usado em todos os caminhos.
 - Quando a empresa não tem serviços ativos, a função que monta a lista simplesmente retorna sem resposta visível para o usuário.
-- Não há `requirements.txt` nem `pyproject.toml`, então a instalação depende de um ambiente já preparado.
-- O bot roda fora do Docker, enquanto a infraestrutura principal roda dentro dele, o que aumenta a quantidade de pontos de configuração.
+
+Algumas melhorias já foram concluídas e por isso não aparecem mais como risco:
+
+- As credenciais e URLs do bot já foram removidas do código e passaram para [bot-app/config.py](/home/wadson/stack/bot-app/config.py) e [bot-app/.env](/home/wadson/stack/bot-app/.env).
+- O bot já roda em container e é supervisionado por systemd via compose.
+- A instalação agora é reproduzível com [bot-app/requirements.txt](/home/wadson/stack/bot-app/requirements.txt).
+- O painel administrativo já está disponível em `/admin`.
+- O motor de agenda já foi validado com criação, conflito, reagendamento e cancelamento em base real.
 
 ## Infraestrutura e deploy
 
@@ -132,9 +166,13 @@ O `docker-compose.yml` sobe:
 - Redis 7, com porta local em `127.0.0.1:6379`.
 - Evolution API em `127.0.0.1:8080`.
 
-O bot sobe separado, por systemd, usando o arquivo [bot-app.service](/home/wadson/stack/bot-app.service) na raiz do workspace.
+O bot roda em container, via [bot-app/docker-compose.yml](/home/wadson/stack/bot-app/docker-compose.yml), e o systemd apenas supervisiona esse compose através de [bot-app.service](/home/wadson/stack/bot-app.service).
 
 O Caddy encaminha o domínio público para `localhost:8080`, enquanto o bot permanece exposto na porta 8000 localmente.
+
+O container do bot também publica healthcheck para a rota `/readyz`, que valida conexão com PostgreSQL e Redis antes de ser considerado pronto.
+
+O painel administrativo usa as mesmas credenciais definidas em [bot-app/.env.example](/home/wadson/stack/bot-app/.env.example), por meio das variáveis `ADMIN_USERNAME`, `ADMIN_PASSWORD` e `SESSION_SECRET_KEY`.
 
 ## Segurança
 
@@ -151,18 +189,17 @@ Mas ainda existem pontos a melhorar:
 - Validar e renovar tokens da Meta com processo controlado.
 - Rever logs, alertas e política de backup.
 
+O primeiro item já foi parcialmente atendido: as credenciais da aplicação saíram do código e foram centralizadas em ambiente, mas o processo de rotação e gestão segura de segredos ainda precisa de formalização.
+
 ## Melhorias futuras
 
 Se o objetivo for transformar isso em um produto vendável, os próximos passos mais úteis são:
 
-1. Externalizar toda configuração para `.env` e padronizar dependências.
-2. Implementar parsing real de data e hora e validação de agenda.
-3. Criar painel administrativo web para empresas, serviços e agendamentos.
-4. Adicionar autenticação e trilha de auditoria.
-5. Cobrir o fluxo com testes automatizados.
-6. Mover o `bot-app` para dentro do Docker para simplificar deploy.
-7. Formalizar onboarding de novos clientes.
-8. Acrescentar cobrança recorrente e notificações operacionais.
+1. Fortalecer permissões e papéis no painel administrativo.
+2. Cobrir o fluxo com testes automatizados.
+3. Formalizar onboarding de novos clientes.
+4. Acrescentar cobrança recorrente e notificações operacionais.
+5. Melhorar observabilidade com métricas e alertas operacionais.
 
 ## Comandos úteis
 

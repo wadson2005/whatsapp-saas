@@ -1,9 +1,6 @@
-import os
 import redis
-from dotenv import load_dotenv
+from config import settings
 
-load_dotenv()
-
-REDIS_URL = os.getenv("REDIS_URL")
+REDIS_URL = settings.redis_url
 
 redis_cliente = redis.from_url(REDIS_URL, decode_responses=True)

@@ -1,0 +1,71 @@
+{% extends 'admin/base.html' %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-xl-8">
+    <div class="panel-card p-3 p-lg-4">
+      <div class="mb-4">
+        <h1 class="section-title mb-1">{{ title }}</h1>
+        <p class="text-secondary mb-0">Preencha os dados da empresa para disponibilizar o atendimento no painel e no bot.</p>
+      </div>
+      <form method="post" action="{{ action_url }}" class="row g-3">
+        <div class="col-12 col-lg-6">
+          <label class="form-label">Nome</label>
+          <input type="text" name="nome" class="form-control" required value="{{ empresa.nome if empresa else '' }}" />
+        </div>
+        <div class="col-12 col-lg-6">
+          <label class="form-label">Slug</label>
+          <input type="text" name="slug" class="form-control" required value="{{ empresa.slug if empresa else '' }}" />
+        </div>
+        <div class="col-12 col-lg-6">
+          <label class="form-label">Segmento</label>
+          <input type="text" name="segmento" class="form-control" required value="{{ empresa.segmento if empresa else '' }}" />
+        </div>
+        <div class="col-12 col-lg-6">
+          <label class="form-label">Telefone WhatsApp</label>
+          <input type="text" name="telefone_whatsapp" class="form-control" value="{{ empresa.telefone_whatsapp if empresa else '' }}" />
+        </div>
+        <div class="col-12 col-lg-8">
+          <label class="form-label">Instância Evolution</label>
+          <input type="text" name="evolution_instance_name" class="form-control" required value="{{ empresa.evolution_instance_name if empresa else '' }}" />
+        </div>
+        <div class="col-12 col-lg-4 d-flex align-items-end">
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" name="ativo" id="ativo" {% if empresa is none or empresa.ativo %}checked{% endif %} />
+            <label class="form-check-label" for="ativo">Empresa ativa</label>
+          </div>
+        </div>
+        <div class="col-12">
+          <hr class="my-2" />
+          <h2 class="h6 text-uppercase text-secondary mb-0">Configuração de agenda</h2>
+        </div>
+        <div class="col-12 col-lg-3">
+          <label class="form-label">Abertura</label>
+          <input type="time" name="horario_abertura" class="form-control" value="{{ empresa.horario_abertura if empresa else '08:00' }}" />
+        </div>
+        <div class="col-12 col-lg-3">
+          <label class="form-label">Fechamento</label>
+          <input type="time" name="horario_fechamento" class="form-control" value="{{ empresa.horario_fechamento if empresa else '18:00' }}" />
+        </div>
+        <div class="col-12 col-lg-3">
+          <label class="form-label">Intervalo entre atendimentos</label>
+          <input type="number" name="intervalo_entre_atendimentos_minutos" class="form-control" min="0" step="1" value="{{ empresa.intervalo_entre_atendimentos_minutos if empresa else 15 }}" />
+        </div>
+        <div class="col-12 col-lg-3">
+          <label class="form-label">Dias indisponíveis</label>
+          <input type="text" name="dias_indisponiveis" class="form-control" placeholder="0,6" value="{{ empresa.dias_indisponiveis if empresa else '' }}" />
+          <div class="form-text">0=segunda, 6=domingo</div>
+        </div>
+        <div class="col-12">
+          <label class="form-label">Datas indisponíveis</label>
+          <input type="text" name="datas_indisponiveis" class="form-control" placeholder="2026-08-15, 2026-12-25" value="{{ empresa.datas_indisponiveis if empresa else '' }}" />
+          <div class="form-text">Use datas no formato YYYY-MM-DD separadas por vírgula.</div>
+        </div>
+        <div class="col-12 d-flex justify-content-end gap-2 pt-2">
+          <a href="/admin/empresas" class="btn btn-outline-secondary">Cancelar</a>
+          <button type="submit" class="btn btn-brand">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

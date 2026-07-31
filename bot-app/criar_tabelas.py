@@ -1,5 +1,4 @@
-from database import Base, engine
-import models
+from schema import ensure_schema
 
-Base.metadata.create_all(bind=engine)
+ensure_schema()
 print("Tabelas criadas com sucesso!")
