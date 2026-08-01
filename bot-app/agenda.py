@@ -93,6 +93,22 @@ def _parse_lista_datas(valor) -> set[date]:
     return itens
 
 
+def _parse_lista_dias(valor) -> set[int]:
+    texto = (valor or "").strip()
+    if not texto:
+        return set()
+    itens = set()
+    for parte in texto.split(","):
+        parte = parte.strip()
+        if not parte:
+            continue
+        try:
+            itens.add(int(parte))
+        except ValueError:
+            continue
+    return itens
+
+
 def _parse_hora(valor, padrao: time) -> time:
     texto = _primeiro_texto(valor, padrao.strftime("%H:%M"))
     try:
@@ -122,8 +138,28 @@ def dias_indisponiveis(empresa: Empresa) -> set[int]:
     return _parse_lista_inteiros(empresa.dias_indisponiveis)
 
 
+def dias_funcionamento(empresa: Empresa) -> set[int]:
+    dias = _parse_lista_dias(getattr(empresa, "dias_funcionamento", ""))
+    return dias if dias else {0, 1, 2, 3, 4, 5}
+
+
 def datas_indisponiveis(empresa: Empresa) -> set[date]:
     return _parse_lista_datas(empresa.datas_indisponiveis)
+
+
+def _horario_almoco(empresa: Empresa) -> tuple[time, time] | None:
+    inicio = getattr(empresa, "horario_almoco_inicio", None)
+    fim = getattr(empresa, "horario_almoco_fim", None)
+    if not inicio or not fim:
+        return None
+    try:
+        hora_inicio = _parse_hora(inicio, DEFAULT_HORARIO_ABERTURA)
+        hora_fim = _parse_hora(fim, DEFAULT_HORARIO_FECHAMENTO)
+    except Exception:
+        return None
+    if hora_inicio >= hora_fim:
+        return None
+    return hora_inicio, hora_fim
 
 
 def _faixa_periodo(periodo: str | None) -> tuple[time, time] | None:
@@ -134,7 +170,21 @@ def _faixa_periodo(periodo: str | None) -> tuple[time, time] | None:
 
 
 def _data_disponivel(empresa: Empresa, dia: date) -> bool:
-    return dia.weekday() not in dias_indisponiveis(empresa) and dia not in datas_indisponiveis(empresa)
+    if dia in datas_indisponiveis(empresa):
+        return False
+    if dia.weekday() in dias_indisponiveis(empresa):
+        return False
+    return dia.weekday() in dias_funcionamento(empresa)
+
+
+def _cruza_almoco(inicio: datetime, fim: datetime, empresa: Empresa) -> bool:
+    faixa = _horario_almoco(empresa)
+    if not faixa:
+        return False
+    almoco_inicio, almoco_fim = faixa
+    almoco_inicio_dt = datetime.combine(inicio.date(), almoco_inicio)
+    almoco_fim_dt = datetime.combine(inicio.date(), almoco_fim)
+    return not (fim <= almoco_inicio_dt or inicio >= almoco_fim_dt)
 
 
 def _intervalo_agendamento(agendamento: Agendamento, servico: Servico | None = None) -> tuple[datetime, datetime]:
@@ -225,6 +275,10 @@ def obter_slots_disponiveis(
                 continue
 
             fim_slot = cursor + duracao
+            if _cruza_almoco(cursor, fim_slot, empresa):
+                cursor += passo
+                continue
+
             if _slot_disponivel(cursor, fim_slot, agendamentos, buffer_minutos, servico):
                 slots.append(SlotDisponivel(cursor, fim_slot))
                 if len(slots) >= limite:
@@ -369,7 +423,7 @@ def agendar_servico(
         data_hora=inicio_em,
         fim_em=fim_em,
         duracao_minutos=duracao_servico(servico),
-        status="confirmado",
+        status="agendado",
     )
     db.add(agendamento)
     db.commit()
@@ -391,7 +445,7 @@ def reagendar_agendamento(
     agendamento.data_hora = inicio_em
     agendamento.fim_em = inicio_em + timedelta(minutes=duracao_servico(servico))
     agendamento.duracao_minutos = duracao_servico(servico)
-    agendamento.status = "confirmado"
+    agendamento.status = "agendado"
     db.commit()
     db.refresh(agendamento)
     return agendamento, validacao

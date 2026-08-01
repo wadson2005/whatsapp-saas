@@ -108,6 +108,7 @@
               <li class="nav-item"><a class="nav-link {% if request.url.path.startswith('/admin/empresas') %}active{% endif %}" href="/admin/empresas">Empresas</a></li>
               <li class="nav-item"><a class="nav-link {% if request.url.path.startswith('/admin/servicos') %}active{% endif %}" href="/admin/servicos">Serviços</a></li>
               <li class="nav-item"><a class="nav-link {% if request.url.path.startswith('/admin/agendamentos') %}active{% endif %}" href="/admin/agendamentos">Agendamentos</a></li>
+              <li class="nav-item"><a class="nav-link {% if request.url.path.startswith('/admin/solicitacoes-atendimento') %}active{% endif %}" href="/admin/solicitacoes-atendimento">Solicitações</a></li>
             </ul>
             <div class="d-flex align-items-center gap-3">
               {% if admin_username %}

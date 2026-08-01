@@ -114,6 +114,11 @@ O fluxo hoje é uma máquina de estados simples, sem IA generativa nem NLP avan�
 - Lista de serviços: busca os serviços ativos da empresa e envia uma lista interativa.
 - Escolha do período: apresenta botões para manhã, tarde ou texto livre.
 - Confirmação: cria cliente e agendamento, salva no banco e limpa o estado do Redis.
+- Menu guiado: quando a mensagem não encaixa no fluxo atual, o bot mostra um menu com atalhos para serviços, reagendamento, cancelamento e atendimento humano.
+- Cancelamento com confirmação: o bot pede confirmação antes de cancelar um agendamento ativo.
+- Reagendamento: o bot tenta recuperar o agendamento ativo do número quando o estado já expirou.
+- Fallbacks: respostas inesperadas não silenciam mais a conversa; o bot orienta o próximo passo de forma explícita.
+- Atendimento humano: quando o usuário pede uma pessoa, o bot registra a solicitação em `solicitacoes_atendimento` e confirma o envio.
 
 Também existem atalhos de controle como `menu`, `voltar` e `cancelar`, que reiniciam a conversa.
 
@@ -127,6 +132,7 @@ O que já existe e funciona hoje:
 - Bot containerizado com [bot-app/Dockerfile](/home/wadson/stack/bot-app/Dockerfile) e [bot-app/docker-compose.yml](/home/wadson/stack/bot-app/docker-compose.yml).
 - Rotas de saúde `/healthz` e `/readyz` ativas no FastAPI.
 - Painel administrativo com login, dashboard, cadastro de empresas, cadastro de serviços e listagem de agendamentos.
+- Painel administrativo com login, dashboard, cadastro de empresas, cadastro de serviços, listagem de agendamentos e solicitações de atendimento.
 - Onboarding público em `/onboarding`, permitindo cadastrar empresa, configurar WhatsApp e criar o primeiro serviço sem usar terminal.
 - Recebimento de webhooks da Evolution API.
 - Identificação da empresa pela instância recebida no payload.
@@ -134,6 +140,8 @@ O que já existe e funciona hoje:
 - Cadastro de empresa, serviços e cliente final.
 - Registro de agendamento no banco com validação de janela, conflito e horário de funcionamento.
 - Reagendamento e cancelamento operacionais no fluxo do bot.
+- Registro de solicitações de atendimento humano com prevenção de duplicidade por telefone e empresa.
+- Menu de atendimento, confirmação de cancelamento, encaminhamento para humano e respostas de fallback mais naturais.
 - Envio de mensagens interativas pela Meta Graph API.
 - Script de seed com uma empresa de teste: `Clínica Sorriso Feliz`.
 - Scripts simples para pausar e retomar a empresa de teste.
@@ -154,7 +162,8 @@ Esses pontos aparecem no código atual e devem ser tratados como limitações re
 
 - O fluxo ainda depende de regras explícitas e botões/listas; não há NLP nem IA generativa no entendimento de mensagem.
 - O reconhecimento de botões/listas ainda depende bastante do texto exibido; o `id` da interação existe no webhook, mas não é usado em todos os caminhos.
-- Quando a empresa não tem serviços ativos, a função que monta a lista simplesmente retorna sem resposta visível para o usuário.
+- Quando a empresa não tem serviços ativos, o bot ainda orienta o usuário com uma resposta simples, mas a operação continua dependente da configuração do catálogo.
+- A primeira versão do atendimento humano registra e organiza a demanda, mas ainda não distribui automaticamente a solicitação para um operador específico.
 
 Algumas melhorias já foram concluídas e por isso não aparecem mais como risco:
 
