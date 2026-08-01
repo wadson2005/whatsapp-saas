@@ -1,6 +1,6 @@
+from config import settings
 from database import SessionLocal
 from models import Empresa, Servico
-from config import settings
 
 db = SessionLocal()
 

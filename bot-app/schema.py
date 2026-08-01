@@ -1,11 +1,14 @@
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 
-from database import Base, engine
 import models  # noqa: F401
+from database import Base, engine
 
 
 def _add_column_if_missing(conn, table_name: str, column_ddl: str):
-    conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {column_ddl}"))
+    column_name = column_ddl.split()[0]
+    existing_columns = {column["name"] for column in inspect(conn).get_columns(table_name)}
+    if column_name not in existing_columns:
+        conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_ddl}"))
 
 
 def ensure_schema():

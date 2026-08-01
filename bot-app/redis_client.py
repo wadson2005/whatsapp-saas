@@ -1,4 +1,5 @@
 import redis
+
 from config import settings
 
 REDIS_URL = settings.redis_url

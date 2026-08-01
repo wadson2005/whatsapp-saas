@@ -1,4 +1,5 @@
 import httpx
+
 from config import settings
 
 META_TOKEN = settings.meta_token

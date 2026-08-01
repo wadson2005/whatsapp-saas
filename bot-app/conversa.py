@@ -557,12 +557,12 @@ async def _cancelar_agendamento_ativo(db, empresa: Empresa, numero: str):
 
 
 async def processar_mensagem(db, empresa: Empresa, numero: str, texto: str, id_interacao: str | None):
-    print(f"[DEBUG] texto recebido: {repr(texto)} | id_interacao: {repr(id_interacao)}")
+    print(f"[DEBUG] texto recebido: {texto!r} | id_interacao: {id_interacao!r}")
     estado = obter_estado(empresa.id, numero)
     passo = estado["passo"]
     contexto = estado["contexto"]
     texto_lower = texto.strip().lower()
-    print(f"[DEBUG] passo atual: {passo} | texto_lower: {repr(texto_lower)}")
+    print(f"[DEBUG] passo atual: {passo} | texto_lower: {texto_lower!r}")
 
     if texto_lower in ("menu", "voltar") or id_interacao == "menu":
         limpar_estado(empresa.id, numero)

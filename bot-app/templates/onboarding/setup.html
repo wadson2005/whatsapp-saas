@@ -1,0 +1,99 @@
+{% extends 'onboarding/base.html' %}
+{% block content %}
+<div class="d-flex flex-column gap-3">
+  <div class="d-flex justify-content-between align-items-start gap-3">
+    <div>
+      <span class="step-pill">Passo {{ step }} de 2</span>
+      <h2 class="h3 fw-bold mb-1 mt-3">{{ 'Cadastro da empresa' if step == 1 else 'Configuração do WhatsApp' }}</h2>
+      <p class="field-hint mb-0">{{ 'Registre a marca que seus clientes vão ver.' if step == 1 else 'Finalize a operação com instância, agenda e o primeiro serviço.' }}</p>
+    </div>
+    <div class="step-tracker">
+      <span class="{% if step == 1 %}active{% endif %}">1. Empresa</span>
+      <span class="{% if step == 2 %}active{% endif %}">2. Operação</span>
+    </div>
+  </div>
+
+  {% if errors.get('geral') %}
+  <div class="alert alert-danger border-0 mb-0">{{ errors.get('geral') }}</div>
+  {% endif %}
+
+  {% if step == 1 %}
+  <form method="post" action="/onboarding" class="row g-3 mt-1">
+    <div class="col-12">
+      <label class="form-label">Nome da empresa</label>
+      <input type="text" name="nome" class="form-control" required value="{{ draft.get('nome', '') }}" />
+      {% if errors.get('nome') %}<div class="text-danger small mt-1">{{ errors.get('nome') }}</div>{% endif %}
+    </div>
+    <div class="col-12">
+      <label class="form-label">Slug público</label>
+      <input type="text" name="slug" class="form-control" required placeholder="clinica-sorriso-feliz" value="{{ draft.get('slug', '') }}" />
+      <div class="field-hint mt-1">Use apenas letras minúsculas, números e hífens.</div>
+      {% if errors.get('slug') %}<div class="text-danger small mt-1">{{ errors.get('slug') }}</div>{% endif %}
+    </div>
+    <div class="col-12">
+      <label class="form-label">Segmento</label>
+      <input type="text" name="segmento" class="form-control" required placeholder="clinica, barbearia, restaurante" value="{{ draft.get('segmento', '') }}" />
+      {% if errors.get('segmento') %}<div class="text-danger small mt-1">{{ errors.get('segmento') }}</div>{% endif %}
+    </div>
+    <div class="col-12 d-grid mt-2">
+      <button type="submit" class="btn btn-brand btn-lg">Continuar para a configuração</button>
+    </div>
+  </form>
+  {% else %}
+  <div class="summary-card p-3 mb-3">
+    <div class="fw-bold mb-1">Resumo da empresa</div>
+    <div class="small text-secondary">{{ draft.get('nome') }} • {{ draft.get('slug') }} • {{ draft.get('segmento') }}</div>
+  </div>
+  <form method="post" action="/onboarding/configurar" class="row g-3 mt-1">
+    <div class="col-12">
+      <label class="form-label">Telefone WhatsApp</label>
+      <input type="text" name="telefone_whatsapp" class="form-control" required placeholder="5586999999999" value="{{ draft.get('telefone_whatsapp', '') }}" />
+      {% if errors.get('telefone_whatsapp') %}<div class="text-danger small mt-1">{{ errors.get('telefone_whatsapp') }}</div>{% endif %}
+    </div>
+    <div class="col-12">
+      <label class="form-label">Instância do WhatsApp</label>
+      <input type="text" name="evolution_instance_name" class="form-control" required placeholder="clinica-sorriso-feliz" value="{{ draft.get('evolution_instance_name', draft.get('slug', '')) }}" />
+      {% if errors.get('evolution_instance_name') %}<div class="text-danger small mt-1">{{ errors.get('evolution_instance_name') }}</div>{% endif %}
+    </div>
+    <div class="col-6">
+      <label class="form-label">Abertura</label>
+      <input type="time" name="horario_abertura" class="form-control" value="{{ draft.get('horario_abertura', '08:00') }}" />
+      {% if errors.get('horario_abertura') %}<div class="text-danger small mt-1">{{ errors.get('horario_abertura') }}</div>{% endif %}
+    </div>
+    <div class="col-6">
+      <label class="form-label">Fechamento</label>
+      <input type="time" name="horario_fechamento" class="form-control" value="{{ draft.get('horario_fechamento', '18:00') }}" />
+      {% if errors.get('horario_fechamento') %}<div class="text-danger small mt-1">{{ errors.get('horario_fechamento') }}</div>{% endif %}
+    </div>
+    <div class="col-12">
+      <label class="form-label">Intervalo entre atendimentos</label>
+      <input type="number" name="intervalo_entre_atendimentos_minutos" class="form-control" min="0" step="1" value="{{ draft.get('intervalo_entre_atendimentos_minutos', 15) }}" />
+      {% if errors.get('intervalo_entre_atendimentos_minutos') %}<div class="text-danger small mt-1">{{ errors.get('intervalo_entre_atendimentos_minutos') }}</div>{% endif %}
+    </div>
+    <div class="col-12 border-top pt-3 mt-1">
+      <div class="fw-bold mb-1">Primeiro serviço</div>
+      <div class="field-hint mb-3">Este serviço já deixa a empresa pronta para receber o primeiro agendamento.</div>
+    </div>
+    <div class="col-12">
+      <label class="form-label">Nome do serviço</label>
+      <input type="text" name="primeiro_servico_nome" class="form-control" required placeholder="Consulta inicial" value="{{ draft.get('primeiro_servico_nome', '') }}" />
+      {% if errors.get('primeiro_servico_nome') %}<div class="text-danger small mt-1">{{ errors.get('primeiro_servico_nome') }}</div>{% endif %}
+    </div>
+    <div class="col-6">
+      <label class="form-label">Duração em minutos</label>
+      <input type="number" name="primeiro_servico_duracao_minutos" class="form-control" min="1" step="1" value="{{ draft.get('primeiro_servico_duracao_minutos', 30) }}" />
+      {% if errors.get('primeiro_servico_duracao_minutos') %}<div class="text-danger small mt-1">{{ errors.get('primeiro_servico_duracao_minutos') }}</div>{% endif %}
+    </div>
+    <div class="col-6">
+      <label class="form-label">Preço</label>
+      <input type="text" name="primeiro_servico_preco" class="form-control" placeholder="120,00" value="{{ draft.get('primeiro_servico_preco', '') if draft.get('primeiro_servico_preco') is not none else '' }}" />
+      {% if errors.get('primeiro_servico_preco') %}<div class="text-danger small mt-1">{{ errors.get('primeiro_servico_preco') }}</div>{% endif %}
+    </div>
+    <div class="col-12 d-flex flex-column flex-sm-row gap-2 justify-content-end mt-2">
+      <a href="/onboarding" class="btn btn-outline-secondary">Voltar</a>
+      <button type="submit" class="btn btn-brand btn-lg">Finalizar configuração</button>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

@@ -13,7 +13,6 @@ from config import settings
 from database import SessionLocal
 from models import Agendamento, ClienteFinal, Empresa, Servico
 
-
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 admin_app = FastAPI()

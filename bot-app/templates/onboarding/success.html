@@ -1,0 +1,12 @@
+{% extends 'onboarding/base.html' %}
+{% block content %}
+<div class="text-center py-2 py-lg-3">
+  <div class="display-6 fw-bold text-success mb-3">Configuração concluída</div>
+  <h2 class="h3 fw-bold mb-3">{{ result.empresa_nome }} já está pronta para operar.</h2>
+  <p class="field-hint mb-4">O primeiro serviço foi criado e a instância do WhatsApp já ficou associada à empresa. Agora é só entrar no painel e começar a vender.</p>
+  <div class="d-grid gap-2">
+    <a href="{{ result.admin_url }}" class="btn btn-brand btn-lg">Acessar o painel administrativo</a>
+    <a href="/admin/servicos" class="btn btn-outline-secondary">Ver serviços</a>
+  </div>
+</div>
+{% endblock %}

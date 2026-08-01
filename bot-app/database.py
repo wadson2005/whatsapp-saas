@@ -1,6 +1,10 @@
-from config import settings
+from contextlib import suppress
+
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import declarative_base, sessionmaker
+
+from config import settings
 
 DATABASE_URL = settings.database_url
 
@@ -19,9 +23,8 @@ def get_db():
 
 try:
     from schema import ensure_schema
-
-    ensure_schema()
-except Exception:
-    # The FastAPI startup path also runs the schema bootstrap. Keeping the import here
-    # makes direct scripts more resilient without blocking the application boot.
-    pass
+except ImportError:
+    ensure_schema = None
+else:
+    with suppress(SQLAlchemyError):
+        ensure_schema()

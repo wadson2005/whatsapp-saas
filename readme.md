@@ -70,6 +70,10 @@ O caminho de execução hoje é este:
 │   │       ├── login.html
 │   │       ├── servico_form.html
 │   │       └── servicos_list.html
+│       └── onboarding/
+│           ├── base.html
+│           ├── setup.html
+│           └── success.html
 │   └── seed.py
 └── evolution/
     ├── botoes.json
@@ -123,6 +127,7 @@ O que já existe e funciona hoje:
 - Bot containerizado com [bot-app/Dockerfile](/home/wadson/stack/bot-app/Dockerfile) e [bot-app/docker-compose.yml](/home/wadson/stack/bot-app/docker-compose.yml).
 - Rotas de saúde `/healthz` e `/readyz` ativas no FastAPI.
 - Painel administrativo com login, dashboard, cadastro de empresas, cadastro de serviços e listagem de agendamentos.
+- Onboarding público em `/onboarding`, permitindo cadastrar empresa, configurar WhatsApp e criar o primeiro serviço sem usar terminal.
 - Recebimento de webhooks da Evolution API.
 - Identificação da empresa pela instância recebida no payload.
 - Máquina de estados com Redis e expiração de 30 minutos.
@@ -133,6 +138,7 @@ O que já existe e funciona hoje:
 - Script de seed com uma empresa de teste: `Clínica Sorriso Feliz`.
 - Scripts simples para pausar e retomar a empresa de teste.
 - Bootstrap automático de schema para ambientes já existentes.
+- Wizard público de onboarding para novos clientes, com validação e tela de sucesso.
 
 O que ainda está faltando para virar produto de fato:
 
@@ -197,9 +203,8 @@ Se o objetivo for transformar isso em um produto vendável, os próximos passos 
 
 1. Fortalecer permissões e papéis no painel administrativo.
 2. Cobrir o fluxo com testes automatizados.
-3. Formalizar onboarding de novos clientes.
-4. Acrescentar cobrança recorrente e notificações operacionais.
-5. Melhorar observabilidade com métricas e alertas operacionais.
+3. Acrescentar cobrança recorrente e notificações operacionais.
+4. Melhorar observabilidade com métricas e alertas operacionais.
 
 ## Comandos úteis
 

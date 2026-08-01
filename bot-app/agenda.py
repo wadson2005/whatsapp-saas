@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy.orm import joinedload
 
 from models import Agendamento, ClienteFinal, Empresa, Servico
-
 
 DEFAULT_HORARIO_ABERTURA = time(8, 0)
 DEFAULT_HORARIO_FECHAMENTO = time(18, 0)
@@ -17,6 +16,10 @@ PERIODOS = {
     "manha": (time(8, 0), time(12, 0)),
     "tarde": (time(12, 0), time(18, 0)),
 }
+
+
+def _agora() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 @dataclass(frozen=True)
@@ -84,7 +87,7 @@ def _parse_lista_datas(valor) -> set[date]:
         if not parte:
             continue
         try:
-            itens.add(datetime.strptime(parte, "%Y-%m-%d").date())
+            itens.add(date.fromisoformat(parte))
         except ValueError:
             continue
     return itens
@@ -93,7 +96,8 @@ def _parse_lista_datas(valor) -> set[date]:
 def _parse_hora(valor, padrao: time) -> time:
     texto = _primeiro_texto(valor, padrao.strftime("%H:%M"))
     try:
-        return datetime.strptime(texto, "%H:%M").time()
+        hora_texto, minuto_texto = texto.split(":")
+        return time(int(hora_texto), int(minuto_texto))
     except ValueError:
         return padrao
 
@@ -189,7 +193,7 @@ def obter_slots_disponiveis(
     buffer_minutos = intervalo_entre_atendimentos(empresa)
     passo = timedelta(minutes=max(buffer_minutos, 5))
     duracao = timedelta(minutes=duracao_servico(servico))
-    inicio_base = inicio_busca or datetime.utcnow()
+    inicio_base = inicio_busca or _agora()
     periodo_faixa = _faixa_periodo(periodo)
     agendamentos = _agendamentos_em_janela(
         db,
@@ -259,11 +263,11 @@ def validar_agendamento(
     fim_dia = datetime.combine(inicio_em.date(), fechamento)
     fim_em = inicio_em + duracao
 
-    if inicio_em < datetime.utcnow():
+    if inicio_em < _agora():
         return ValidacaoAgendamento(
             False,
             "Esse horário já passou. Escolha um horário futuro.",
-            obter_slots_disponiveis(db, empresa, servico, inicio_busca=datetime.utcnow(), ignorar_agendamento_id=ignorar_agendamento_id),
+            obter_slots_disponiveis(db, empresa, servico, inicio_busca=_agora(), ignorar_agendamento_id=ignorar_agendamento_id),
         )
 
     if inicio_em < inicio_dia or fim_em > fim_dia:
@@ -293,7 +297,7 @@ def validar_agendamento(
 
 
 def parsear_data_hora_texto(texto: str, base: datetime | None = None) -> datetime | None:
-    base = base or datetime.utcnow()
+    base = base or _agora()
     bruto = texto.strip().lower()
     bruto = bruto.replace("às", " ")
     bruto = bruto.replace("hs", "h")
@@ -306,27 +310,32 @@ def parsear_data_hora_texto(texto: str, base: datetime | None = None) -> datetim
     bruto = bruto.replace("amanha", "").replace("amanhã", "").replace("hoje", "")
     bruto = re.sub(r"\s+", " ", bruto).strip()
 
-    formatos = ["%d/%m/%Y %H:%M", "%d/%m/%Y %H", "%d/%m %H:%M", "%d/%m %H"]
-    for formato in formatos:
-        try:
-            parsed = datetime.strptime(bruto, formato)
-            if "%Y" not in formato:
-                parsed = parsed.replace(year=base.year)
-                if parsed < base and not hoje and not amanha:
-                    parsed = parsed.replace(year=base.year + 1)
-            if amanha:
-                parsed = parsed.replace(year=base.year, month=base.month, day=base.day) + timedelta(days=1)
-                if ":" in bruto:
-                    hora_texto = bruto.split()[-1]
-                    parsed = parsed.replace(hour=int(hora_texto.split(":")[0]), minute=int(hora_texto.split(":")[1]) if ":" in hora_texto else 0)
-            if hoje:
-                parsed = parsed.replace(year=base.year, month=base.month, day=base.day)
-                if ":" in bruto:
-                    hora_texto = bruto.split()[-1]
-                    parsed = parsed.replace(hour=int(hora_texto.split(":")[0]), minute=int(hora_texto.split(":")[1]) if ":" in hora_texto else 0)
-            return parsed
-        except ValueError:
-            continue
+    data_texto = None
+    data_match = re.search(r"\b(\d{1,2})/(\d{1,2})(?:/(\d{4}))?\b", bruto)
+    if data_match:
+        data_texto = data_match.group(0)
+        bruto = re.sub(rf"\b{re.escape(data_texto)}\b", "", bruto).strip()
+
+    hora_match = re.search(r"\b(\d{1,2})(?::(\d{2}))?\b", bruto)
+    if not hora_match:
+        return None
+
+    hora = int(hora_match.group(1))
+    minuto = int(hora_match.group(2) or 0)
+
+    if data_match:
+        dia = int(data_match.group(1))
+        mes = int(data_match.group(2))
+        ano = int(data_match.group(3) or base.year)
+        parsed = datetime(ano, mes, dia, hora, minuto, tzinfo=timezone.utc).replace(tzinfo=None)
+        if data_match.group(3) is None and parsed < base and not hoje and not amanha:
+            parsed = parsed.replace(year=base.year + 1)
+        return parsed
+
+    if amanha or hoje:
+        dia_base = base.date() + timedelta(days=1 if amanha else 0)
+        return datetime(dia_base.year, dia_base.month, dia_base.day, hora, minuto, tzinfo=timezone.utc).replace(tzinfo=None)
+
     return None
 
 
@@ -390,7 +399,7 @@ def reagendar_agendamento(
 
 def cancelar_agendamento(db, agendamento: Agendamento, motivo: str | None = None) -> Agendamento:
     agendamento.status = "cancelado"
-    agendamento.cancelado_em = datetime.utcnow()
+    agendamento.cancelado_em = _agora()
     agendamento.motivo_cancelamento = motivo
     db.commit()
     db.refresh(agendamento)
