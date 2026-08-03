@@ -49,6 +49,8 @@
                 <button type="submit" class="btn btn-outline-primary">{% if empresa.ativo %}Desativar{% else %}Ativar{% endif %}</button>
               </form>
               <a class="btn btn-outline-dark" href="/admin/servicos?empresa_id={{ empresa.id }}">Serviços</a>
+              <a class="btn btn-outline-dark" href="/admin/conhecimento?empresa_id={{ empresa.id }}">Conhecimento</a>
+              <a class="btn btn-outline-dark" href="/admin/clientes?empresa_id={{ empresa.id }}">Clientes</a>
               <a class="btn btn-outline-dark" href="/admin/solicitacoes-atendimento?empresa_id={{ empresa.id }}">Solicitações</a>
             </div>
           </td>

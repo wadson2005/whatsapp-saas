@@ -52,7 +52,7 @@
         <tr>
           <td>{{ agendamento.empresa_nome }}</td>
           <td>
-            <div class="fw-semibold">{{ agendamento.cliente_nome or 'Sem nome' }}</div>
+            <a class="fw-semibold text-decoration-none" href="/admin/clientes/{{ agendamento.cliente_final_id }}">{{ agendamento.cliente_nome or 'Sem nome' }}</a>
             <div class="text-secondary small">{{ agendamento.cliente_telefone }}</div>
           </td>
           <td>{{ agendamento.servico_nome }}</td>

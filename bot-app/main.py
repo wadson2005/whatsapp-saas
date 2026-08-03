@@ -1,4 +1,7 @@
+import asyncio
+import logging
 import re
+from contextlib import suppress
 from datetime import time
 from pathlib import Path
 
@@ -13,9 +16,12 @@ from admin import admin_app, parse_optional_float
 from config import settings
 from conversa import processar_mensagem
 from database import SessionLocal
+from lembretes import enviar_lembretes_pendentes
 from models import Empresa, Servico
 from redis_client import redis_cliente
 from schema import ensure_schema
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -361,9 +367,36 @@ async def readyz():
     return {"status": "ok", "database": "ok", "redis": "ok"}
 
 
+_lembretes_task: asyncio.Task | None = None
+
+
+async def _loop_lembretes():
+    while True:
+        db = SessionLocal()
+        try:
+            enviados = await enviar_lembretes_pendentes(db)
+            if enviados:
+                logger.info("Lembretes automáticos enviados: %s", enviados)
+        except Exception:
+            logger.exception("Falha no ciclo de lembretes automáticos")
+        finally:
+            db.close()
+        await asyncio.sleep(settings.lembrete_intervalo_minutos * 60)
+
+
 @app.on_event("startup")
 async def startup_schema():
     ensure_schema()
+    global _lembretes_task
+    _lembretes_task = asyncio.create_task(_loop_lembretes())
+
+
+@app.on_event("shutdown")
+async def shutdown_lembretes():
+    if _lembretes_task is not None:
+        _lembretes_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await _lembretes_task
 
 
 def extrair_conteudo(dados: dict) -> tuple[str | None, str | None]:

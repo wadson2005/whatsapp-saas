@@ -26,10 +26,12 @@ def carregar_app(monkeypatch, tmp_path: Path):
     for chave, valor in BOOTSTRAP_ENV.items():
         monkeypatch.setenv(chave, valor)
 
-    for modulo in ["main", "admin", "config", "database", "models", "schema", "conversa", "redis_client"]:
+    for modulo in ["main", "admin", "config", "database", "models", "schema", "conversa", "redis_client", "agenda", "meta_client", "atendimento_humano", "lembretes", "ai", "ai.provider", "ai.service", "ai.prompts", "ai.models", "ai.cache", "texto_utils", "conhecimento", "metricas"]:
         sys.modules.pop(modulo, None)
 
-    return importlib.import_module("main")
+    main = importlib.import_module("main")
+    main.ensure_schema()
+    return main
 
 
 def test_raiz_redireciona_para_onboarding_quando_nao_existe_empresa(monkeypatch, tmp_path):

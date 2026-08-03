@@ -106,7 +106,35 @@ class Agendamento(Base):
     status = Column(String, default="agendado")  # agendado, confirmado, concluido, cancelado
     cancelado_em = Column(DateTime)
     motivo_cancelamento = Column(String)
+    lembrete_enviado_em = Column(DateTime)
 
     empresa = relationship("Empresa", back_populates="agendamentos")
     servico = relationship("Servico")
     cliente_final = relationship("ClienteFinal")
+
+
+class EmpresaConhecimento(Base):
+    __tablename__ = "empresa_conhecimento"
+
+    id = Column(Integer, primary_key=True)
+    empresa_id = Column(Integer, ForeignKey("empresas.id"), nullable=False)
+    categoria = Column(String)
+    pergunta = Column(String, nullable=False)
+    resposta = Column(String, nullable=False)
+    ativo = Column(Boolean, default=True)
+    criado_em = Column(DateTime, default=datetime.utcnow)
+    atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    excluido_em = Column(DateTime)
+
+    empresa = relationship("Empresa")
+
+
+class ConversaIniciada(Base):
+    __tablename__ = "conversas_iniciadas"
+
+    id = Column(Integer, primary_key=True)
+    empresa_id = Column(Integer, ForeignKey("empresas.id"), nullable=False)
+    telefone = Column(String, nullable=False)
+    criado_em = Column(DateTime, default=datetime.utcnow)
+
+    empresa = relationship("Empresa")

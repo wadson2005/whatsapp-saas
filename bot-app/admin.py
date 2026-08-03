@@ -1,5 +1,5 @@
 from pathlib import Path
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
 from types import SimpleNamespace
 
 from fastapi import FastAPI, HTTPException, Request
@@ -12,8 +12,10 @@ from starlette.templating import Jinja2Templates
 
 from atendimento_humano import STATUS_EM_ATENDIMENTO, STATUS_FINALIZADO, STATUS_PENDENTE, atualizar_status_solicitacao_atendimento
 from config import settings
+from conhecimento import atualizar_conhecimento, criar_conhecimento, excluir_conhecimento, listar_conhecimento
 from database import SessionLocal
-from models import Agendamento, ClienteFinal, Empresa, Servico, SolicitacaoAtendimento
+from metricas import calcular_metricas, gerar_insights, listar_clientes_inativos
+from models import Agendamento, ClienteFinal, Empresa, EmpresaConhecimento, Servico, SolicitacaoAtendimento
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -176,6 +178,13 @@ def load_agendamento(db, agendamento_id: int):
     return agendamento
 
 
+def load_conhecimento(db, conhecimento_id: int):
+    entrada = db.query(EmpresaConhecimento).filter(EmpresaConhecimento.id == conhecimento_id).first()
+    if not entrada:
+        raise HTTPException(status_code=404, detail="conhecimento_nao_encontrado")
+    return entrada
+
+
 def _aplicar_dados_empresa(empresa: Empresa, dados: SimpleNamespace):
     empresa.nome = dados.nome
     empresa.slug = dados.slug
@@ -263,6 +272,26 @@ async def logout(request: Request):
     return RedirectResponse(url="/admin/login", status_code=303)
 
 
+def _periodo_dashboard(request: Request) -> tuple[datetime, datetime]:
+    agora = datetime.utcnow()
+    padrao_inicio = agora - timedelta(days=30)
+
+    data_inicio_str = (request.query_params.get("data_inicio") or "").strip()
+    data_fim_str = (request.query_params.get("data_fim") or "").strip()
+
+    try:
+        data_inicio = datetime.combine(date.fromisoformat(data_inicio_str), time.min) if data_inicio_str else padrao_inicio
+    except ValueError:
+        data_inicio = padrao_inicio
+
+    try:
+        data_fim = datetime.combine(date.fromisoformat(data_fim_str), time.max) if data_fim_str else agora
+    except ValueError:
+        data_fim = agora
+
+    return data_inicio, data_fim
+
+
 @admin_app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request):
     redirect_response = admin_required(request)
@@ -270,9 +299,11 @@ async def dashboard(request: Request):
         return redirect_response
 
     empresa_id = _query_empresa_id(request)
+    data_inicio, data_fim = _periodo_dashboard(request)
     db = SessionLocal()
     try:
         empresas, empresa = _base_empresa_contexto(db, empresa_id)
+        metricas_periodo = calcular_metricas(db, empresa_id, data_inicio, data_fim)
         filtros_empresa = []
         if empresa_id:
             filtros_empresa.append(Empresa.id == empresa_id)
@@ -282,7 +313,10 @@ async def dashboard(request: Request):
         total_clientes = db.query(func.count(ClienteFinal.id)).filter(*([ClienteFinal.empresa_id == empresa_id] if empresa_id else [])).scalar() or 0
         total_servicos = db.query(func.count(Servico.id)).filter(Servico.excluido_em.is_(None), *([Servico.empresa_id == empresa_id] if empresa_id else [])).scalar() or 0
         total_agendamentos = db.query(func.count(Agendamento.id)).filter(*([Agendamento.empresa_id == empresa_id] if empresa_id else [])).scalar() or 0
-        total_solicitacoes = db.query(func.count(SolicitacaoAtendimento.id)).filter(*([SolicitacaoAtendimento.empresa_id == empresa_id] if empresa_id else [])).scalar() or 0
+        total_solicitacoes = db.query(func.count(SolicitacaoAtendimento.id)).filter(
+            SolicitacaoAtendimento.status == STATUS_PENDENTE,
+            *([SolicitacaoAtendimento.empresa_id == empresa_id] if empresa_id else []),
+        ).scalar() or 0
         atendimentos_dia = db.query(func.count(Agendamento.id)).filter(
             *( [Agendamento.empresa_id == empresa_id] if empresa_id else [] ),
             Agendamento.status != "cancelado",
@@ -314,6 +348,7 @@ async def dashboard(request: Request):
             "servico_nome": item.servico_nome,
             "cliente_nome": item.cliente_nome,
             "cliente_telefone": item.cliente_telefone,
+            "cliente_final_id": item.Agendamento.cliente_final_id,
             "data_hora": item.Agendamento.data_hora,
             "status": item.Agendamento.status,
         }
@@ -336,6 +371,9 @@ async def dashboard(request: Request):
             total_solicitacoes=total_solicitacoes,
             atendimentos_dia=atendimentos_dia,
             agendamentos=agendamentos,
+            metricas=metricas_periodo,
+            data_inicio=data_inicio.date().isoformat(),
+            data_fim=data_fim.date().isoformat(),
         ),
     )
 
@@ -663,6 +701,174 @@ async def servico_delete(request: Request, servico_id: int):
     return RedirectResponse(url=f"/admin/servicos?empresa_id={empresa_id}&message=Serviço excluído com sucesso.", status_code=303)
 
 
+@admin_app.get("/conhecimento", response_class=HTMLResponse)
+async def conhecimento_list(request: Request):
+    redirect_response = admin_required(request)
+    if redirect_response:
+        return redirect_response
+
+    empresa_id = request.query_params.get("empresa_id")
+    db = SessionLocal()
+    try:
+        empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
+        entradas = listar_conhecimento(db, int(empresa_id) if empresa_id else None)
+    finally:
+        db.close()
+
+    return templates.TemplateResponse(
+        request,
+        "admin/conhecimento_list.html",
+        page_context(
+            request,
+            title="Base de conhecimento",
+            empresas=empresas,
+            entradas=entradas,
+            selected_empresa_id=int(empresa_id) if empresa_id else None,
+        ),
+    )
+
+
+@admin_app.get("/conhecimento/novo", response_class=HTMLResponse)
+async def conhecimento_new_page(request: Request):
+    redirect_response = admin_required(request)
+    if redirect_response:
+        return redirect_response
+
+    empresa_id = request.query_params.get("empresa_id")
+    db = SessionLocal()
+    try:
+        empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
+    finally:
+        db.close()
+
+    return templates.TemplateResponse(
+        request,
+        "admin/conhecimento_form.html",
+        page_context(
+            request,
+            title="Nova pergunta",
+            empresas=empresas,
+            entrada=None,
+            selected_empresa_id=int(empresa_id) if empresa_id else None,
+            action_url="/admin/conhecimento/novo",
+        ),
+    )
+
+
+@admin_app.post("/conhecimento/novo")
+async def conhecimento_new_submit(request: Request):
+    redirect_response = admin_required(request)
+    if redirect_response:
+        return redirect_response
+
+    form = await request.form()
+    empresa_id = int(form.get("empresa_id"))
+    db = SessionLocal()
+    try:
+        load_empresa(db, empresa_id)
+        criar_conhecimento(
+            db,
+            empresa_id=empresa_id,
+            categoria=parse_optional_str(form.get("categoria")),
+            pergunta=(form.get("pergunta") or "").strip(),
+            resposta=(form.get("resposta") or "").strip(),
+            ativo=parse_bool(form.get("ativo")),
+        )
+    finally:
+        db.close()
+
+    return RedirectResponse(url=f"/admin/conhecimento?empresa_id={empresa_id}&message=Pergunta criada com sucesso.", status_code=303)
+
+
+@admin_app.get("/conhecimento/{conhecimento_id}/editar", response_class=HTMLResponse)
+async def conhecimento_edit_page(request: Request, conhecimento_id: int):
+    redirect_response = admin_required(request)
+    if redirect_response:
+        return redirect_response
+
+    db = SessionLocal()
+    try:
+        empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
+        entrada = load_conhecimento(db, conhecimento_id)
+    finally:
+        db.close()
+
+    return templates.TemplateResponse(
+        request,
+        "admin/conhecimento_form.html",
+        page_context(
+            request,
+            title="Editar pergunta",
+            empresas=empresas,
+            entrada=entrada,
+            selected_empresa_id=entrada.empresa_id,
+            action_url=f"/admin/conhecimento/{conhecimento_id}/editar",
+        ),
+    )
+
+
+@admin_app.post("/conhecimento/{conhecimento_id}/editar")
+async def conhecimento_edit_submit(request: Request, conhecimento_id: int):
+    redirect_response = admin_required(request)
+    if redirect_response:
+        return redirect_response
+
+    form = await request.form()
+    empresa_id = int(form.get("empresa_id"))
+    db = SessionLocal()
+    try:
+        entrada = load_conhecimento(db, conhecimento_id)
+        load_empresa(db, empresa_id)
+        atualizar_conhecimento(
+            entrada,
+            categoria=parse_optional_str(form.get("categoria")),
+            pergunta=(form.get("pergunta") or "").strip(),
+            resposta=(form.get("resposta") or "").strip(),
+            ativo=parse_bool(form.get("ativo")),
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    return RedirectResponse(url=f"/admin/conhecimento?empresa_id={empresa_id}&message=Pergunta atualizada com sucesso.", status_code=303)
+
+
+@admin_app.post("/conhecimento/{conhecimento_id}/toggle")
+async def conhecimento_toggle(request: Request, conhecimento_id: int):
+    redirect_response = admin_required(request)
+    if redirect_response:
+        return redirect_response
+
+    db = SessionLocal()
+    try:
+        entrada = load_conhecimento(db, conhecimento_id)
+        entrada.ativo = not entrada.ativo
+        db.commit()
+        empresa_id = entrada.empresa_id
+    finally:
+        db.close()
+
+    return RedirectResponse(url=f"/admin/conhecimento?empresa_id={empresa_id}&message=Status atualizado.", status_code=303)
+
+
+@admin_app.post("/conhecimento/{conhecimento_id}/excluir")
+async def conhecimento_delete(request: Request, conhecimento_id: int):
+    redirect_response = admin_required(request)
+    if redirect_response:
+        return redirect_response
+
+    db = SessionLocal()
+    try:
+        entrada = load_conhecimento(db, conhecimento_id)
+        excluir_conhecimento(entrada)
+        empresa_id = entrada.empresa_id
+        db.commit()
+    finally:
+        db.close()
+
+    return RedirectResponse(url=f"/admin/conhecimento?empresa_id={empresa_id}&message=Pergunta excluída com sucesso.", status_code=303)
+
+
 @admin_app.get("/agendamentos", response_class=HTMLResponse)
 async def agendamentos_list(request: Request):
     redirect_response = admin_required(request)
@@ -728,6 +934,7 @@ async def agendamentos_list(request: Request):
             "servico_nome": item.servico_nome,
             "cliente_nome": item.cliente_nome,
             "cliente_telefone": item.cliente_telefone,
+            "cliente_final_id": item.Agendamento.cliente_final_id,
             "data_hora": item.Agendamento.data_hora,
             "status": item.Agendamento.status,
         }
@@ -801,12 +1008,14 @@ async def clientes_list(request: Request):
         query = (
             db.query(
                 ClienteFinal,
+                Empresa.nome.label("empresa_nome"),
                 func.count(Agendamento.id).label("agendamentos_count"),
                 func.max(Agendamento.data_hora).label("ultimo_atendimento"),
             )
+            .join(Empresa, ClienteFinal.empresa_id == Empresa.id)
             .outerjoin(Agendamento, Agendamento.cliente_final_id == ClienteFinal.id)
             .filter(*([ClienteFinal.empresa_id == empresa_id] if empresa_id else []))
-            .group_by(ClienteFinal.id)
+            .group_by(ClienteFinal.id, Empresa.nome)
         )
         if q:
             like = f"%{q}%"
@@ -829,6 +1038,7 @@ async def clientes_list(request: Request):
         {
             "id": item.ClienteFinal.id,
             "empresa_id": item.ClienteFinal.empresa_id,
+            "empresa_nome": item.empresa_nome,
             "nome": item.ClienteFinal.nome,
             "telefone": item.ClienteFinal.telefone,
             "agendamentos_count": item.agendamentos_count,
@@ -866,6 +1076,7 @@ async def cliente_detail(request: Request, cliente_id: int):
         if empresa_id and cliente.empresa_id != empresa_id:
             raise HTTPException(status_code=404, detail="cliente_nao_encontrado")
 
+        empresa = load_empresa(db, cliente.empresa_id)
         agendamentos = (
             db.query(Agendamento)
             .options(joinedload(Agendamento.servico))
@@ -889,6 +1100,7 @@ async def cliente_detail(request: Request, cliente_id: int):
             request,
             title=f"Cliente - {cliente.nome or cliente.telefone}",
             cliente=cliente,
+            empresa=empresa,
             agendamentos=agendamentos,
             solicitacoes=solicitacoes,
         ),
@@ -935,6 +1147,7 @@ async def solicitacoes_atendimento_list(request: Request):
             "id": item.SolicitacaoAtendimento.id,
             "empresa_id": item.SolicitacaoAtendimento.empresa_id,
             "empresa_nome": item.empresa_nome,
+            "cliente_id": item.SolicitacaoAtendimento.cliente_id,
             "cliente_nome": item.cliente_nome,
             "cliente_telefone": item.cliente_telefone,
             "nome": item.SolicitacaoAtendimento.nome,
@@ -989,4 +1202,70 @@ async def solicitacao_atendimento_status_submit(request: Request, solicitacao_id
     return RedirectResponse(
         url=f"/admin/solicitacoes-atendimento?empresa_id={empresa_id or solicitacao.empresa_id}&message={mensagem}",
         status_code=303,
+    )
+
+
+@admin_app.get("/insights", response_class=HTMLResponse)
+async def insights_page(request: Request):
+    redirect_response = admin_required(request)
+    if redirect_response:
+        return redirect_response
+
+    empresa_id = _query_empresa_id(request)
+    db = SessionLocal()
+    try:
+        empresas, empresa = _base_empresa_contexto(db, empresa_id)
+        frases = gerar_insights(db, empresa.id if empresa else empresa_id)
+    finally:
+        db.close()
+
+    return templates.TemplateResponse(
+        request,
+        "admin/insights.html",
+        page_context(
+            request,
+            title="Insights",
+            empresas=empresas,
+            selected_empresa_id=empresa.id if empresa else empresa_id,
+            insights=frases,
+        ),
+    )
+
+
+DIAS_INATIVIDADE_PERMITIDOS = (30, 60, 90, 180)
+
+
+@admin_app.get("/clientes-inativos", response_class=HTMLResponse)
+async def clientes_inativos_page(request: Request):
+    redirect_response = admin_required(request)
+    if redirect_response:
+        return redirect_response
+
+    empresa_id = _query_empresa_id(request)
+    try:
+        dias = int(request.query_params.get("dias") or 90)
+    except ValueError:
+        dias = 90
+    if dias not in DIAS_INATIVIDADE_PERMITIDOS:
+        dias = 90
+
+    db = SessionLocal()
+    try:
+        empresas, empresa = _base_empresa_contexto(db, empresa_id)
+        clientes = listar_clientes_inativos(db, empresa.id if empresa else empresa_id, dias)
+    finally:
+        db.close()
+
+    return templates.TemplateResponse(
+        request,
+        "admin/clientes_inativos.html",
+        page_context(
+            request,
+            title="Clientes inativos",
+            empresas=empresas,
+            selected_empresa_id=empresa.id if empresa else empresa_id,
+            clientes=clientes,
+            dias_opcoes=DIAS_INATIVIDADE_PERMITIDOS,
+            selected_dias=dias,
+        ),
     )

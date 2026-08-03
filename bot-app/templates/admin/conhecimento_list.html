@@ -1,0 +1,77 @@
+{% extends 'admin/base.html' %}
+{% block content %}
+<div class="d-flex flex-column flex-lg-row justify-content-between align-items-start align-items-lg-center gap-3 mb-4">
+  <div>
+    <h1 class="section-title mb-1">Base de conhecimento</h1>
+    <p class="text-secondary mb-0">Perguntas e respostas que o bot usa antes de recorrer à IA — sem inventar informação.</p>
+  </div>
+  <a class="btn btn-brand" href="/admin/conhecimento/novo{% if selected_empresa_id %}?empresa_id={{ selected_empresa_id }}{% endif %}">Nova pergunta</a>
+</div>
+
+<div class="panel-card p-3 p-lg-4 mb-4">
+  <form method="get" action="/admin/conhecimento" class="row g-3 align-items-end">
+    <div class="col-12 col-lg-8">
+      <label class="form-label">Filtrar por empresa</label>
+      <select name="empresa_id" class="form-select">
+        <option value="">Todas</option>
+        {% for empresa in empresas %}
+        <option value="{{ empresa.id }}" {% if selected_empresa_id == empresa.id %}selected{% endif %}>{{ empresa.nome }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-12 col-lg-4 d-flex gap-2">
+      <button class="btn btn-outline-secondary w-100" type="submit">Filtrar</button>
+      <a class="btn btn-outline-dark w-100" href="/admin/conhecimento">Limpar</a>
+    </div>
+  </form>
+</div>
+
+<div class="table-card p-3 p-lg-4">
+  <div class="table-responsive">
+    <table class="table align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Pergunta</th>
+          <th>Resposta</th>
+          <th>Categoria</th>
+          <th>Empresa</th>
+          <th>Status</th>
+          <th class="text-end">Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entrada in entradas %}
+        <tr>
+          <td class="fw-semibold">{{ entrada.pergunta }}</td>
+          <td style="max-width: 360px; white-space: normal;">{{ entrada.resposta }}</td>
+          <td>{% if entrada.categoria %}<span class="badge badge-soft">{{ entrada.categoria }}</span>{% else %}-{% endif %}</td>
+          <td>{{ entrada.empresa.nome if entrada.empresa else '-' }}</td>
+          <td>
+            {% if entrada.ativo %}
+            <span class="badge text-bg-success">Ativa</span>
+            {% else %}
+            <span class="badge text-bg-secondary">Inativa</span>
+            {% endif %}
+          </td>
+          <td class="text-end">
+            <div class="btn-group btn-group-sm" role="group">
+              <a class="btn btn-outline-secondary" href="/admin/conhecimento/{{ entrada.id }}/editar">Editar</a>
+              <form method="post" action="/admin/conhecimento/{{ entrada.id }}/toggle" class="d-inline">
+                <button type="submit" class="btn btn-outline-primary">{% if entrada.ativo %}Desativar{% else %}Ativar{% endif %}</button>
+              </form>
+              <form method="post" action="/admin/conhecimento/{{ entrada.id }}/excluir" class="d-inline">
+                <button type="submit" class="btn btn-outline-danger">Excluir</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" class="text-center text-secondary py-4">Nenhuma pergunta cadastrada.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

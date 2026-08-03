@@ -47,12 +47,13 @@ def carregar_app(monkeypatch, tmp_path: Path):
     for chave, valor in BOOTSTRAP_ENV.items():
         monkeypatch.setenv(chave, valor)
 
-    for modulo in ["main", "admin", "config", "database", "models", "schema", "conversa", "redis_client", "agenda", "meta_client"]:
+    for modulo in ["main", "admin", "config", "database", "models", "schema", "conversa", "redis_client", "agenda", "meta_client", "atendimento_humano", "lembretes", "ai", "ai.provider", "ai.service", "ai.prompts", "ai.models", "ai.cache", "texto_utils", "conhecimento", "metricas"]:
         sys.modules.pop(modulo, None)
 
     main = importlib.import_module("main")
     conversa = importlib.import_module("conversa")
     models = importlib.import_module("models")
+    main.ensure_schema()
     return main, conversa, models
 
 
@@ -226,3 +227,86 @@ def test_estado_inesperado_recebe_fallback_e_nao_quebra_o_contexto(monkeypatch, 
     assert "menu" in texto or "não entendi" in texto
     estado = conversa.obter_estado(empresa.id, "5586999999997")
     assert estado["passo"] == "aguardando_estado_invalido"
+
+
+def test_ia_interpreta_cancelamento_quando_fora_das_palavras_chave(monkeypatch, tmp_path):
+    main, conversa, models = carregar_app(monkeypatch, tmp_path)
+    conversa.redis_cliente = FakeRedis()
+    conversa.enviar_botoes = AsyncMock()
+    conversa.enviar_lista = AsyncMock()
+
+    ai_models = importlib.import_module("ai.models")
+    empresa, _, agendamento = _criar_empresa_com_agendamento(main, models, "5586999999996", "clinica-sorriso-feliz")
+    conversa.redis_cliente.set(
+        f"conversa:{empresa.id}:5586999999996",
+        json.dumps({"passo": "agendamento_ativo", "contexto": {"agendamento_id": agendamento.id, "servico_id": agendamento.servico_id}}),
+    )
+
+    conversa.ai_service.interpretar = AsyncMock(
+        return_value=ai_models.InterpretacaoIA(
+            intent=ai_models.Intent.CANCELAR,
+            entidades=ai_models.Entidades(),
+            confianca=0.9,
+            origem="ia",
+        )
+    )
+
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/webhook",
+            json=_payload_texto("clinica-sorriso-feliz", "5586999999996", "não vou poder ir nesse horário"),
+        )
+
+    assert response.status_code == 200
+    conversa.ai_service.interpretar.assert_awaited_once()
+    assert conversa.enviar_botoes.await_count == 1
+    botoes = conversa.enviar_botoes.await_args.kwargs["botoes"]
+    assert any(botao["id"] == "cancelamento:confirmar" for botao in botoes)
+
+    estado = conversa.obter_estado(empresa.id, "5586999999996")
+    assert estado["passo"] == "aguardando_cancelamento_confirmacao"
+
+    db = main.SessionLocal()
+    try:
+        atualizado = db.query(models.Agendamento).filter_by(id=agendamento.id).first()
+        assert atualizado.status != "cancelado"
+    finally:
+        db.close()
+
+
+def test_ia_desconhecida_mantem_fallback_padrao(monkeypatch, tmp_path):
+    main, conversa, models = carregar_app(monkeypatch, tmp_path)
+    conversa.redis_cliente = FakeRedis()
+    conversa.enviar_botoes = AsyncMock()
+    conversa.enviar_lista = AsyncMock()
+
+    ai_models = importlib.import_module("ai.models")
+    empresa, _, agendamento = _criar_empresa_com_agendamento(main, models, "5586999999995", "clinica-sorriso-feliz")
+    conversa.redis_cliente.set(
+        f"conversa:{empresa.id}:5586999999995",
+        json.dumps({"passo": "agendamento_ativo", "contexto": {"agendamento_id": agendamento.id, "servico_id": agendamento.servico_id}}),
+    )
+
+    conversa.ai_service.interpretar = AsyncMock(
+        return_value=ai_models.InterpretacaoIA(
+            intent=ai_models.Intent.DESCONHECIDO,
+            entidades=ai_models.Entidades(),
+            confianca=0.0,
+            origem="fallback",
+        )
+    )
+
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/webhook",
+            json=_payload_texto("clinica-sorriso-feliz", "5586999999995", "posso levar meu filho junto?"),
+        )
+
+    assert response.status_code == 200
+    conversa.ai_service.interpretar.assert_awaited_once()
+    assert conversa.enviar_botoes.await_count == 1
+    texto_resposta = conversa.enviar_botoes.await_args.kwargs["texto"].lower()
+    assert "não entendi" in texto_resposta
+
+    estado = conversa.obter_estado(empresa.id, "5586999999995")
+    assert estado["passo"] == "agendamento_ativo"

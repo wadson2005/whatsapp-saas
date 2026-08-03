@@ -58,6 +58,16 @@ def carregar_app(monkeypatch, tmp_path: Path):
         "agenda",
         "meta_client",
         "atendimento_humano",
+        "lembretes",
+        "ai",
+        "ai.provider",
+        "ai.service",
+        "ai.prompts",
+        "ai.models",
+        "ai.cache",
+        "texto_utils",
+        "conhecimento",
+        "metricas",
     ]:
         sys.modules.pop(modulo, None)
 

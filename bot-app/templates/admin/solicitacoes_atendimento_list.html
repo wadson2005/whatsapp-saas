@@ -50,7 +50,13 @@
             <div class="fw-semibold">{{ solicitacao.cliente_telefone or solicitacao.telefone }}</div>
             <div class="text-secondary small">{{ solicitacao.empresa_nome }}</div>
           </td>
-          <td>{{ solicitacao.nome or solicitacao.cliente_nome or 'Sem nome' }}</td>
+          <td>
+            {% if solicitacao.cliente_id %}
+            <a class="text-decoration-none" href="/admin/clientes/{{ solicitacao.cliente_id }}">{{ solicitacao.nome or solicitacao.cliente_nome or 'Sem nome' }}</a>
+            {% else %}
+            {{ solicitacao.nome or solicitacao.cliente_nome or 'Sem nome' }}
+            {% endif %}
+          </td>
           <td style="max-width: 420px; white-space: normal;">{{ solicitacao.mensagem }}</td>
           <td>{{ solicitacao.criado_em.strftime('%d/%m/%Y %H:%M') }}</td>
           <td><span class="badge badge-soft">{{ solicitacao.status }}</span></td>

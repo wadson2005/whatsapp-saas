@@ -1,7 +1,4 @@
-from contextlib import suppress
-
 from sqlalchemy import create_engine
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from config import settings
@@ -19,12 +16,3 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-try:
-    from schema import ensure_schema
-except ImportError:
-    ensure_schema = None
-else:
-    with suppress(SQLAlchemyError):
-        ensure_schema()

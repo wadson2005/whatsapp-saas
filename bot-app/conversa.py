@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-import unicodedata
 from datetime import datetime, timedelta, time
 
 from agenda import (
@@ -13,11 +12,16 @@ from agenda import (
     parsear_data_hora_texto,
     reagendar_agendamento,
 )
+from ai.models import Intent
+from ai.service import ai_service
 from atendimento_humano import registrar_solicitacao_atendimento
 from config import settings
+from conhecimento import buscar_resposta
 from meta_client import enviar_botoes, enviar_lista
+from metricas import registrar_conversa_iniciada
 from models import Agendamento, ClienteFinal, Empresa, Servico
 from redis_client import redis_cliente
+from texto_utils import normalizar_texto
 
 TEMPO_EXPIRACAO_SEGUNDOS = 30 * 60
 LIMITE_SLOTS_EXIBIDOS = 10
@@ -46,14 +50,8 @@ def _numero_limpo(numero: str) -> str:
     return numero.split("@")[0]
 
 
-def _normalizar_texto(texto: str) -> str:
-    bruto = unicodedata.normalize("NFKD", texto)
-    sem_acentos = "".join(ch for ch in bruto if not unicodedata.combining(ch))
-    return re.sub(r"\s+", " ", sem_acentos.lower()).strip()
-
-
 def _texto_corresponde(texto: str, opcoes: tuple[str, ...]) -> bool:
-    normalizado = _normalizar_texto(texto)
+    normalizado = normalizar_texto(texto)
     return any(re.search(rf"\b{re.escape(opcao)}\b", normalizado) for opcao in opcoes)
 
 
@@ -864,12 +862,58 @@ async def _cancelar_agendamento_ativo(db, empresa: Empresa, numero: str):
     await _solicitar_confirmacao_cancelamento(db, empresa, numero, estado.get("contexto", {}))
 
 
+async def _tentar_interpretar_via_ia(db, empresa: Empresa, numero: str, texto: str, contexto: dict) -> bool:
+    """Último recurso quando a máquina de estados não determinou o próximo passo.
+
+    Primeiro consulta a base de conhecimento da empresa (match determinístico, sem IA —
+    garante que uma resposta cadastrada nunca seja substituída por algo inventado).
+    Só se não achar nada relevante lá, cai na interpretação por IA. Em qualquer um dos
+    dois casos, só mapeia para handlers que já existem e que não agem de forma destrutiva
+    por conta própria (cancelar, por exemplo, sempre passa pela tela de confirmação).
+    Se nada for acionável, devolve False e o fallback padrão de sempre continua.
+    """
+    entrada_conhecimento = buscar_resposta(db, empresa.id, texto)
+    if entrada_conhecimento:
+        await enviar_botoes(
+            numero=_numero_limpo(numero),
+            texto=entrada_conhecimento.resposta,
+            botoes=[{"id": "menu", "titulo": TEXTO_BOTAO_MENU}],
+        )
+        return True
+
+    interpretacao = await ai_service.interpretar(empresa.id, texto)
+
+    if interpretacao.intent == Intent.CANCELAR:
+        await _cancelar_agendamento_ativo(db, empresa, numero)
+        return True
+
+    if interpretacao.intent == Intent.REAGENDAR:
+        await _mostrar_slots_reagendamento(db, empresa, numero, contexto, contexto.get("agendamento_id"))
+        return True
+
+    if interpretacao.intent in {Intent.CONSULTAR_SERVICOS, Intent.CONSULTAR_PRECOS}:
+        await _mostrar_lista_servicos(db, empresa, numero)
+        return True
+
+    if interpretacao.intent == Intent.FALAR_COM_ATENDENTE:
+        await _mostrar_atendimento_humano(db, empresa, numero, texto, contexto)
+        return True
+
+    if interpretacao.intent == Intent.SAUDACAO:
+        await _mostrar_menu_principal(db, empresa, numero, contexto)
+        return True
+
+    return False
+
+
 async def processar_mensagem(db, empresa: Empresa, numero: str, texto: str, id_interacao: str | None):
     print(f"[DEBUG] texto recebido: {texto!r} | id_interacao: {id_interacao!r}")
     estado = obter_estado(empresa.id, numero)
     passo = estado["passo"]
     contexto = estado["contexto"]
-    texto_lower = _normalizar_texto(texto)
+    if passo == "novo":
+        registrar_conversa_iniciada(db, empresa.id, _numero_limpo(numero))
+    texto_lower = normalizar_texto(texto)
     print(f"[DEBUG] passo atual: {passo} | texto_lower: {texto_lower!r}")
 
     if _texto_corresponde(texto, PALAVRAS_MENU) or id_interacao == "menu":
@@ -933,6 +977,9 @@ async def processar_mensagem(db, empresa: Empresa, numero: str, texto: str, id_i
 
     if passo == "aguardando_reagendamento_texto":
         await _reagendar_slot_escolhido(db, empresa, numero, texto, contexto, id_interacao)
+        return
+
+    if await _tentar_interpretar_via_ia(db, empresa, numero, texto, contexto):
         return
 
     texto_fallback, botoes_fallback = _resposta_fallback(passo)

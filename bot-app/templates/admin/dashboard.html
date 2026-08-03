@@ -11,12 +11,47 @@
   </div>
 </div>
 
+<div class="panel-card p-3 p-lg-4 mb-4">
+  <form method="get" action="/admin/dashboard" class="row g-3 align-items-end">
+    <div class="col-12 col-lg-5">
+      <label class="form-label">Empresa</label>
+      <select name="empresa_id" class="form-select">
+        <option value="">Todas</option>
+        {% for empresa in empresas %}
+        <option value="{{ empresa.id }}" {% if selected_empresa_id == empresa.id %}selected{% endif %}>{{ empresa.nome }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-6 col-lg-3">
+      <label class="form-label">De</label>
+      <input type="date" name="data_inicio" class="form-control" value="{{ data_inicio }}" />
+    </div>
+    <div class="col-6 col-lg-3">
+      <label class="form-label">Até</label>
+      <input type="date" name="data_fim" class="form-control" value="{{ data_fim }}" />
+    </div>
+    <div class="col-12 col-lg-1 d-flex gap-2">
+      <button class="btn btn-outline-secondary w-100" type="submit">Filtrar</button>
+    </div>
+    <div class="col-12">
+      <a class="small" href="/admin/dashboard{% if selected_empresa_id %}?empresa_id={{ selected_empresa_id }}{% endif %}">Limpar período (últimos 30 dias)</a>
+    </div>
+  </form>
+</div>
+
 <div class="row g-3 mb-4">
   <div class="col-6 col-xl-3">
     <div class="metric-card">
       <div class="metric-label">Empresas</div>
       <div class="metric-value">{{ total_empresas }}</div>
       <div class="text-secondary small">{{ empresas_ativas }} ativas</div>
+    </div>
+  </div>
+  <div class="col-6 col-xl-3">
+    <div class="metric-card">
+      <div class="metric-label">Clientes</div>
+      <div class="metric-value">{{ total_clientes }}</div>
+      <div class="text-secondary small">Já atendidos pelo bot</div>
     </div>
   </div>
   <div class="col-6 col-xl-3">
@@ -30,7 +65,14 @@
     <div class="metric-card">
       <div class="metric-label">Agendamentos</div>
       <div class="metric-value">{{ total_agendamentos }}</div>
-      <div class="text-secondary small">Registros históricos</div>
+      <div class="text-secondary small">{{ atendimentos_dia }} hoje</div>
+    </div>
+  </div>
+  <div class="col-6 col-xl-3">
+    <div class="metric-card">
+      <div class="metric-label">Solicitações pendentes</div>
+      <div class="metric-value">{{ total_solicitacoes }}</div>
+      <div class="text-secondary small"><a href="/admin/solicitacoes-atendimento{% if selected_empresa_id %}?empresa_id={{ selected_empresa_id }}{% endif %}">Ver fila</a></div>
     </div>
   </div>
   <div class="col-6 col-xl-3">
@@ -38,6 +80,76 @@
       <div class="metric-label">Saúde</div>
       <div class="metric-value text-success">OK</div>
       <div class="text-secondary small">Banco e Redis respondendo</div>
+    </div>
+  </div>
+</div>
+
+<div class="table-card p-3 p-lg-4 mb-4">
+  <div class="mb-3">
+    <h2 class="h5 mb-1">Indicadores do período</h2>
+    <p class="text-secondary mb-0">{{ data_inicio }} até {{ data_fim }} — <a href="/admin/insights{% if selected_empresa_id %}?empresa_id={{ selected_empresa_id }}{% endif %}">ver insights</a></p>
+  </div>
+  <div class="row g-3">
+    <div class="col-6 col-xl-3">
+      <div class="metric-card">
+        <div class="metric-label">Conversas iniciadas</div>
+        <div class="metric-value">{{ metricas.conversas_iniciadas }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-xl-3">
+      <div class="metric-card">
+        <div class="metric-label">Agendamentos realizados</div>
+        <div class="metric-value">{{ metricas.agendamentos_realizados }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-xl-3">
+      <div class="metric-card">
+        <div class="metric-label">Cancelamentos</div>
+        <div class="metric-value">{{ metricas.cancelamentos }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-xl-3">
+      <div class="metric-card">
+        <div class="metric-label">Solicitações de atendimento</div>
+        <div class="metric-value">{{ metricas.solicitacoes_atendimento }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-xl-3">
+      <div class="metric-card">
+        <div class="metric-label">Taxa de conversão</div>
+        <div class="metric-value">{{ '%.0f'|format(metricas.taxa_conversao * 100) }}%</div>
+        <div class="text-secondary small">Agendamentos / conversas iniciadas</div>
+      </div>
+    </div>
+    <div class="col-6 col-xl-3">
+      <div class="metric-card">
+        <div class="metric-label">Serviço mais solicitado</div>
+        <div class="metric-value h4">{{ metricas.servico_mais_solicitado or '-' }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-xl-3">
+      <div class="metric-card">
+        <div class="metric-label">Horário mais solicitado</div>
+        <div class="metric-value">{{ metricas.horario_mais_solicitado or '-' }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-xl-3">
+      <div class="metric-card">
+        <div class="metric-label">Dia mais movimentado</div>
+        <div class="metric-value h4">{{ metricas.dia_semana_mais_movimentado or '-' }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-xl-3">
+      <div class="metric-card">
+        <div class="metric-label">Clientes novos</div>
+        <div class="metric-value">{{ metricas.clientes_novos }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-xl-3">
+      <div class="metric-card">
+        <div class="metric-label">Clientes recorrentes</div>
+        <div class="metric-value">{{ metricas.clientes_recorrentes }}</div>
+      </div>
     </div>
   </div>
 </div>

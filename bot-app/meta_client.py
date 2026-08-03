@@ -98,3 +98,37 @@ async def enviar_lista(numero: str, texto: str, titulo_botao: str, secoes: list[
         resultado = resposta.json()
         print(f"[DEBUG META] enviar_botoes -> status {resposta.status_code}: {resultado}")
         return resultado
+
+
+async def enviar_template(numero: str, nome_template: str, idioma: str, parametros_corpo: list[str]):
+    """
+    Envia mensagem via template pré-aprovado da Meta (obrigatório fora da janela de
+    24h de atendimento ao cliente, quando não é permitido enviar texto/interativo livre).
+    parametros_corpo: valores posicionais para os placeholders {{1}}, {{2}}... do corpo do template.
+    """
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": numero,
+        "type": "template",
+        "template": {
+            "name": nome_template,
+            "language": {"code": idioma},
+            "components": [
+                {
+                    "type": "body",
+                    "parameters": [{"type": "text", "text": valor} for valor in parametros_corpo],
+                }
+            ],
+        },
+    }
+
+    async with httpx.AsyncClient() as client:
+        resposta = await client.post(
+            META_API_URL,
+            headers={"Authorization": f"Bearer {META_TOKEN}"},
+            json=payload,
+        )
+        resultado = resposta.json()
+        print(f"[DEBUG META] enviar_template -> status {resposta.status_code}: {resultado}")
+        return resultado

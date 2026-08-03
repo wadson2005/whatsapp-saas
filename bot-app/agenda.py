@@ -446,6 +446,7 @@ def reagendar_agendamento(
     agendamento.fim_em = inicio_em + timedelta(minutes=duracao_servico(servico))
     agendamento.duracao_minutos = duracao_servico(servico)
     agendamento.status = "agendado"
+    agendamento.lembrete_enviado_em = None
     db.commit()
     db.refresh(agendamento)
     return agendamento, validacao
