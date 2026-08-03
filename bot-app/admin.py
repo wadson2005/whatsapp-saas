@@ -1,22 +1,23 @@
-from pathlib import Path
+import hmac
 from datetime import date, datetime, time, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import Session, joinedload
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.templating import Jinja2Templates
 
-from atendimento_humano import STATUS_EM_ATENDIMENTO, STATUS_FINALIZADO, STATUS_PENDENTE, atualizar_status_solicitacao_atendimento
-from config import settings
-from conhecimento import atualizar_conhecimento, criar_conhecimento, excluir_conhecimento, listar_conhecimento
-from configuracoes import atualizar_configuracao, obter_configuracao
-from database import SessionLocal
-from metricas import calcular_metricas, gerar_insights, listar_clientes_inativos
-from models import Agendamento, ClienteFinal, Empresa, EmpresaConhecimento, Servico, SolicitacaoAtendimento
+from core.config import settings
+from core.database import get_db
+from core.models import Agendamento, ClienteFinal, Empresa, EmpresaConhecimento, Servico, SolicitacaoAtendimento
+from services.atendimento_humano import STATUS_EM_ATENDIMENTO, STATUS_FINALIZADO, STATUS_PENDENTE, atualizar_status_solicitacao_atendimento
+from services.conhecimento import atualizar_conhecimento, criar_conhecimento, excluir_conhecimento, listar_conhecimento
+from services.configuracoes import atualizar_configuracao, obter_configuracao
+from services.metricas import calcular_metricas, gerar_insights, listar_clientes_inativos
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -24,10 +25,18 @@ admin_app = FastAPI()
 admin_app.add_middleware(SessionMiddleware, secret_key=settings.session_secret_key, same_site="lax", https_only=False)
 
 
-def admin_required(request: Request):
+class AdminAuthRequired(Exception):
+    """Levantada por `require_admin` quando a sessão não está autenticada."""
+
+
+@admin_app.exception_handler(AdminAuthRequired)
+async def _admin_auth_required_handler(request: Request, exc: AdminAuthRequired):
+    return RedirectResponse(url="/admin/login", status_code=303)
+
+
+def require_admin(request: Request) -> None:
     if not request.session.get("admin_authenticated"):
-        return RedirectResponse(url="/admin/login", status_code=303)
-    return None
+        raise AdminAuthRequired()
 
 
 def page_context(request: Request, **kwargs):
@@ -254,7 +263,10 @@ async def login_submit(request: Request):
     username = (form.get("username") or "").strip()
     password = form.get("password") or ""
 
-    if username != settings.admin_username or password != settings.admin_password:
+    credenciais_validas = hmac.compare_digest(username, settings.admin_username) and hmac.compare_digest(
+        password, settings.admin_password
+    )
+    if not credenciais_validas:
         return templates.TemplateResponse(
             request,
             "admin/login.html",
@@ -294,53 +306,43 @@ def _periodo_dashboard(request: Request) -> tuple[datetime, datetime]:
 
 
 @admin_app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(request: Request):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
+async def dashboard(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     empresa_id = _query_empresa_id(request)
     data_inicio, data_fim = _periodo_dashboard(request)
-    db = SessionLocal()
-    try:
-        empresas, empresa = _base_empresa_contexto(db, empresa_id)
-        metricas_periodo = calcular_metricas(db, empresa_id, data_inicio, data_fim)
-        filtros_empresa = []
-        if empresa_id:
-            filtros_empresa.append(Empresa.id == empresa_id)
 
-        total_empresas = db.query(func.count(Empresa.id)).scalar() or 0
-        empresas_ativas = db.query(func.count(Empresa.id)).filter(Empresa.ativo.is_(True)).scalar() or 0
-        total_clientes = db.query(func.count(ClienteFinal.id)).filter(*([ClienteFinal.empresa_id == empresa_id] if empresa_id else [])).scalar() or 0
-        total_servicos = db.query(func.count(Servico.id)).filter(Servico.excluido_em.is_(None), *([Servico.empresa_id == empresa_id] if empresa_id else [])).scalar() or 0
-        total_agendamentos = db.query(func.count(Agendamento.id)).filter(*([Agendamento.empresa_id == empresa_id] if empresa_id else [])).scalar() or 0
-        total_solicitacoes = db.query(func.count(SolicitacaoAtendimento.id)).filter(
-            SolicitacaoAtendimento.status == STATUS_PENDENTE,
-            *([SolicitacaoAtendimento.empresa_id == empresa_id] if empresa_id else []),
-        ).scalar() or 0
-        atendimentos_dia = db.query(func.count(Agendamento.id)).filter(
-            *( [Agendamento.empresa_id == empresa_id] if empresa_id else [] ),
-            Agendamento.status != "cancelado",
-            func.date(Agendamento.data_hora) == datetime.utcnow().date(),
-        ).scalar() or 0
-        recentes = (
-            db.query(
-                Agendamento,
-                Empresa.nome.label("empresa_nome"),
-                Servico.nome.label("servico_nome"),
-                ClienteFinal.nome.label("cliente_nome"),
-                ClienteFinal.telefone.label("cliente_telefone"),
-            )
-            .join(Empresa, Agendamento.empresa_id == Empresa.id)
-            .join(Servico, Agendamento.servico_id == Servico.id)
-            .join(ClienteFinal, Agendamento.cliente_final_id == ClienteFinal.id)
-            .filter(*([Agendamento.empresa_id == empresa_id] if empresa_id else []))
-            .order_by(Agendamento.data_hora.desc())
-            .limit(8)
-            .all()
+    empresas, empresa = _base_empresa_contexto(db, empresa_id)
+    metricas_periodo = calcular_metricas(db, empresa_id, data_inicio, data_fim)
+
+    total_empresas = db.query(func.count(Empresa.id)).scalar() or 0
+    empresas_ativas = db.query(func.count(Empresa.id)).filter(Empresa.ativo.is_(True)).scalar() or 0
+    total_clientes = db.query(func.count(ClienteFinal.id)).filter(*([ClienteFinal.empresa_id == empresa_id] if empresa_id else [])).scalar() or 0
+    total_servicos = db.query(func.count(Servico.id)).filter(Servico.excluido_em.is_(None), *([Servico.empresa_id == empresa_id] if empresa_id else [])).scalar() or 0
+    total_agendamentos = db.query(func.count(Agendamento.id)).filter(*([Agendamento.empresa_id == empresa_id] if empresa_id else [])).scalar() or 0
+    total_solicitacoes = db.query(func.count(SolicitacaoAtendimento.id)).filter(
+        SolicitacaoAtendimento.status == STATUS_PENDENTE,
+        *([SolicitacaoAtendimento.empresa_id == empresa_id] if empresa_id else []),
+    ).scalar() or 0
+    atendimentos_dia = db.query(func.count(Agendamento.id)).filter(
+        *( [Agendamento.empresa_id == empresa_id] if empresa_id else [] ),
+        Agendamento.status != "cancelado",
+        func.date(Agendamento.data_hora) == datetime.utcnow().date(),
+    ).scalar() or 0
+    recentes = (
+        db.query(
+            Agendamento,
+            Empresa.nome.label("empresa_nome"),
+            Servico.nome.label("servico_nome"),
+            ClienteFinal.nome.label("cliente_nome"),
+            ClienteFinal.telefone.label("cliente_telefone"),
         )
-    finally:
-        db.close()
+        .join(Empresa, Agendamento.empresa_id == Empresa.id)
+        .join(Servico, Agendamento.servico_id == Servico.id)
+        .join(ClienteFinal, Agendamento.cliente_final_id == ClienteFinal.id)
+        .filter(*([Agendamento.empresa_id == empresa_id] if empresa_id else []))
+        .order_by(Agendamento.data_hora.desc())
+        .limit(8)
+        .all()
+    )
 
     agendamentos = [
         {
@@ -380,26 +382,18 @@ async def dashboard(request: Request):
 
 
 @admin_app.get("/empresas", response_class=HTMLResponse)
-async def empresas_list(request: Request):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
-    db = SessionLocal()
-    try:
-        empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
-        servicos_count = dict(
-            db.query(Servico.empresa_id, func.count(Servico.id))
-            .group_by(Servico.empresa_id)
-            .all()
-        )
-        agendamentos_count = dict(
-            db.query(Agendamento.empresa_id, func.count(Agendamento.id))
-            .group_by(Agendamento.empresa_id)
-            .all()
-        )
-    finally:
-        db.close()
+async def empresas_list(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+    empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
+    servicos_count = dict(
+        db.query(Servico.empresa_id, func.count(Servico.id))
+        .group_by(Servico.empresa_id)
+        .all()
+    )
+    agendamentos_count = dict(
+        db.query(Agendamento.empresa_id, func.count(Agendamento.id))
+        .group_by(Agendamento.empresa_id)
+        .all()
+    )
 
     return templates.TemplateResponse(
         request,
@@ -415,10 +409,7 @@ async def empresas_list(request: Request):
 
 
 @admin_app.get("/empresas/nova", response_class=HTMLResponse)
-async def empresa_new_page(request: Request):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
+async def empresa_new_page(request: Request, _: None = Depends(require_admin)):
     return templates.TemplateResponse(
         request,
         "admin/empresa_form.html",
@@ -427,13 +418,8 @@ async def empresa_new_page(request: Request):
 
 
 @admin_app.post("/empresas/nova")
-async def empresa_new_submit(request: Request):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
+async def empresa_new_submit(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     form = await request.form()
-    db = SessionLocal()
     try:
         dados = form_namespace(form)
         empresa = Empresa()
@@ -454,23 +440,13 @@ async def empresa_new_submit(request: Request):
             ),
             status_code=400,
         )
-    finally:
-        db.close()
 
     return RedirectResponse(url="/admin/empresas?message=Empresa criada com sucesso.", status_code=303)
 
 
 @admin_app.get("/empresas/{empresa_id}/editar", response_class=HTMLResponse)
-async def empresa_edit_page(request: Request, empresa_id: int):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
-    db = SessionLocal()
-    try:
-        empresa = load_empresa(db, empresa_id)
-    finally:
-        db.close()
+async def empresa_edit_page(request: Request, empresa_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+    empresa = load_empresa(db, empresa_id)
 
     return templates.TemplateResponse(
         request,
@@ -485,13 +461,8 @@ async def empresa_edit_page(request: Request, empresa_id: int):
 
 
 @admin_app.post("/empresas/{empresa_id}/editar")
-async def empresa_edit_submit(request: Request, empresa_id: int):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
+async def empresa_edit_submit(request: Request, empresa_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     form = await request.form()
-    db = SessionLocal()
     try:
         empresa = load_empresa(db, empresa_id)
         _aplicar_dados_empresa(empresa, form_namespace(form, empresa_id=empresa_id))
@@ -511,50 +482,32 @@ async def empresa_edit_submit(request: Request, empresa_id: int):
             ),
             status_code=400,
         )
-    finally:
-        db.close()
 
     return RedirectResponse(url="/admin/empresas?message=Empresa atualizada com sucesso.", status_code=303)
 
 
 @admin_app.post("/empresas/{empresa_id}/toggle")
-async def empresa_toggle(request: Request, empresa_id: int):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
-    db = SessionLocal()
-    try:
-        empresa = load_empresa(db, empresa_id)
-        empresa.ativo = not empresa.ativo
-        db.commit()
-    finally:
-        db.close()
+async def empresa_toggle(request: Request, empresa_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+    empresa = load_empresa(db, empresa_id)
+    empresa.ativo = not empresa.ativo
+    db.commit()
 
     return RedirectResponse(url="/admin/empresas?message=Status da empresa atualizado.", status_code=303)
 
 
 @admin_app.get("/servicos", response_class=HTMLResponse)
-async def servicos_list(request: Request):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
+async def servicos_list(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     empresa_id = request.query_params.get("empresa_id")
-    db = SessionLocal()
-    try:
-        empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
-        query = (
-            db.query(Servico)
-            .options(joinedload(Servico.empresa))
-            .filter(Servico.excluido_em.is_(None))
-            .order_by(Servico.ordem_exibicao.asc(), Servico.nome.asc())
-        )
-        if empresa_id:
-            query = query.filter(Servico.empresa_id == int(empresa_id))
-        servicos = query.all()
-    finally:
-        db.close()
+    empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
+    query = (
+        db.query(Servico)
+        .options(joinedload(Servico.empresa))
+        .filter(Servico.excluido_em.is_(None))
+        .order_by(Servico.ordem_exibicao.asc(), Servico.nome.asc())
+    )
+    if empresa_id:
+        query = query.filter(Servico.empresa_id == int(empresa_id))
+    servicos = query.all()
 
     return templates.TemplateResponse(
         request,
@@ -570,17 +523,9 @@ async def servicos_list(request: Request):
 
 
 @admin_app.get("/servicos/novo", response_class=HTMLResponse)
-async def servico_new_page(request: Request):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
+async def servico_new_page(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     empresa_id = request.query_params.get("empresa_id")
-    db = SessionLocal()
-    try:
-        empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
-    finally:
-        db.close()
+    empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
 
     return templates.TemplateResponse(
         request,
@@ -597,39 +542,23 @@ async def servico_new_page(request: Request):
 
 
 @admin_app.post("/servicos/novo")
-async def servico_new_submit(request: Request):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
+async def servico_new_submit(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     form = await request.form()
     empresa_id = int(form.get("empresa_id"))
-    db = SessionLocal()
-    try:
-        load_empresa(db, empresa_id)
-        dados = form_namespace(form, empresa_id=empresa_id)
-        servico = Servico()
-        _aplicar_dados_servico(servico, dados)
-        db.add(servico)
-        db.commit()
-    finally:
-        db.close()
+    load_empresa(db, empresa_id)
+    dados = form_namespace(form, empresa_id=empresa_id)
+    servico = Servico()
+    _aplicar_dados_servico(servico, dados)
+    db.add(servico)
+    db.commit()
 
     return RedirectResponse(url=f"/admin/servicos?empresa_id={empresa_id}&message=Serviço criado com sucesso.", status_code=303)
 
 
 @admin_app.get("/servicos/{servico_id}/editar", response_class=HTMLResponse)
-async def servico_edit_page(request: Request, servico_id: int):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
-    db = SessionLocal()
-    try:
-        empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
-        servico = load_servico(db, servico_id)
-    finally:
-        db.close()
+async def servico_edit_page(request: Request, servico_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+    empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
+    servico = load_servico(db, servico_id)
 
     return templates.TemplateResponse(
         request,
@@ -646,75 +575,43 @@ async def servico_edit_page(request: Request, servico_id: int):
 
 
 @admin_app.post("/servicos/{servico_id}/editar")
-async def servico_edit_submit(request: Request, servico_id: int):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
+async def servico_edit_submit(request: Request, servico_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     form = await request.form()
     empresa_id = int(form.get("empresa_id"))
-    db = SessionLocal()
-    try:
-        servico = load_servico(db, servico_id)
-        load_empresa(db, empresa_id)
-        _aplicar_dados_servico(servico, form_namespace(form, empresa_id=empresa_id))
-        db.commit()
-    finally:
-        db.close()
+    servico = load_servico(db, servico_id)
+    load_empresa(db, empresa_id)
+    _aplicar_dados_servico(servico, form_namespace(form, empresa_id=empresa_id))
+    db.commit()
 
     return RedirectResponse(url=f"/admin/servicos?empresa_id={empresa_id}&message=Serviço atualizado com sucesso.", status_code=303)
 
 
 @admin_app.post("/servicos/{servico_id}/toggle")
-async def servico_toggle(request: Request, servico_id: int):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
-    db = SessionLocal()
-    try:
-        servico = load_servico(db, servico_id)
-        servico.ativo = not servico.ativo
-        db.commit()
-        empresa_id = servico.empresa_id
-    finally:
-        db.close()
+async def servico_toggle(request: Request, servico_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+    servico = load_servico(db, servico_id)
+    servico.ativo = not servico.ativo
+    db.commit()
+    empresa_id = servico.empresa_id
 
     return RedirectResponse(url=f"/admin/servicos?empresa_id={empresa_id}&message=Status do serviço atualizado.", status_code=303)
 
 
 @admin_app.post("/servicos/{servico_id}/excluir")
-async def servico_delete(request: Request, servico_id: int):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
-    db = SessionLocal()
-    try:
-        servico = load_servico(db, servico_id)
-        servico.ativo = False
-        servico.excluido_em = datetime.utcnow()
-        empresa_id = servico.empresa_id
-        db.commit()
-    finally:
-        db.close()
+async def servico_delete(request: Request, servico_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+    servico = load_servico(db, servico_id)
+    servico.ativo = False
+    servico.excluido_em = datetime.utcnow()
+    empresa_id = servico.empresa_id
+    db.commit()
 
     return RedirectResponse(url=f"/admin/servicos?empresa_id={empresa_id}&message=Serviço excluído com sucesso.", status_code=303)
 
 
 @admin_app.get("/conhecimento", response_class=HTMLResponse)
-async def conhecimento_list(request: Request):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
+async def conhecimento_list(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     empresa_id = request.query_params.get("empresa_id")
-    db = SessionLocal()
-    try:
-        empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
-        entradas = listar_conhecimento(db, int(empresa_id) if empresa_id else None)
-    finally:
-        db.close()
+    empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
+    entradas = listar_conhecimento(db, int(empresa_id) if empresa_id else None)
 
     return templates.TemplateResponse(
         request,
@@ -730,17 +627,9 @@ async def conhecimento_list(request: Request):
 
 
 @admin_app.get("/conhecimento/novo", response_class=HTMLResponse)
-async def conhecimento_new_page(request: Request):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
+async def conhecimento_new_page(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     empresa_id = request.query_params.get("empresa_id")
-    db = SessionLocal()
-    try:
-        empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
-    finally:
-        db.close()
+    empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
 
     return templates.TemplateResponse(
         request,
@@ -757,42 +646,26 @@ async def conhecimento_new_page(request: Request):
 
 
 @admin_app.post("/conhecimento/novo")
-async def conhecimento_new_submit(request: Request):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
+async def conhecimento_new_submit(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     form = await request.form()
     empresa_id = int(form.get("empresa_id"))
-    db = SessionLocal()
-    try:
-        load_empresa(db, empresa_id)
-        criar_conhecimento(
-            db,
-            empresa_id=empresa_id,
-            categoria=parse_optional_str(form.get("categoria")),
-            pergunta=(form.get("pergunta") or "").strip(),
-            resposta=(form.get("resposta") or "").strip(),
-            ativo=parse_bool(form.get("ativo")),
-        )
-    finally:
-        db.close()
+    load_empresa(db, empresa_id)
+    criar_conhecimento(
+        db,
+        empresa_id=empresa_id,
+        categoria=parse_optional_str(form.get("categoria")),
+        pergunta=(form.get("pergunta") or "").strip(),
+        resposta=(form.get("resposta") or "").strip(),
+        ativo=parse_bool(form.get("ativo")),
+    )
 
     return RedirectResponse(url=f"/admin/conhecimento?empresa_id={empresa_id}&message=Pergunta criada com sucesso.", status_code=303)
 
 
 @admin_app.get("/conhecimento/{conhecimento_id}/editar", response_class=HTMLResponse)
-async def conhecimento_edit_page(request: Request, conhecimento_id: int):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
-    db = SessionLocal()
-    try:
-        empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
-        entrada = load_conhecimento(db, conhecimento_id)
-    finally:
-        db.close()
+async def conhecimento_edit_page(request: Request, conhecimento_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+    empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
+    entrada = load_conhecimento(db, conhecimento_id)
 
     return templates.TemplateResponse(
         request,
@@ -809,124 +682,92 @@ async def conhecimento_edit_page(request: Request, conhecimento_id: int):
 
 
 @admin_app.post("/conhecimento/{conhecimento_id}/editar")
-async def conhecimento_edit_submit(request: Request, conhecimento_id: int):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
+async def conhecimento_edit_submit(request: Request, conhecimento_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     form = await request.form()
     empresa_id = int(form.get("empresa_id"))
-    db = SessionLocal()
-    try:
-        entrada = load_conhecimento(db, conhecimento_id)
-        load_empresa(db, empresa_id)
-        atualizar_conhecimento(
-            entrada,
-            categoria=parse_optional_str(form.get("categoria")),
-            pergunta=(form.get("pergunta") or "").strip(),
-            resposta=(form.get("resposta") or "").strip(),
-            ativo=parse_bool(form.get("ativo")),
-        )
-        db.commit()
-    finally:
-        db.close()
+    entrada = load_conhecimento(db, conhecimento_id)
+    load_empresa(db, empresa_id)
+    atualizar_conhecimento(
+        entrada,
+        categoria=parse_optional_str(form.get("categoria")),
+        pergunta=(form.get("pergunta") or "").strip(),
+        resposta=(form.get("resposta") or "").strip(),
+        ativo=parse_bool(form.get("ativo")),
+    )
+    db.commit()
 
     return RedirectResponse(url=f"/admin/conhecimento?empresa_id={empresa_id}&message=Pergunta atualizada com sucesso.", status_code=303)
 
 
 @admin_app.post("/conhecimento/{conhecimento_id}/toggle")
-async def conhecimento_toggle(request: Request, conhecimento_id: int):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
-    db = SessionLocal()
-    try:
-        entrada = load_conhecimento(db, conhecimento_id)
-        entrada.ativo = not entrada.ativo
-        db.commit()
-        empresa_id = entrada.empresa_id
-    finally:
-        db.close()
+async def conhecimento_toggle(request: Request, conhecimento_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+    entrada = load_conhecimento(db, conhecimento_id)
+    entrada.ativo = not entrada.ativo
+    db.commit()
+    empresa_id = entrada.empresa_id
 
     return RedirectResponse(url=f"/admin/conhecimento?empresa_id={empresa_id}&message=Status atualizado.", status_code=303)
 
 
 @admin_app.post("/conhecimento/{conhecimento_id}/excluir")
-async def conhecimento_delete(request: Request, conhecimento_id: int):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
-    db = SessionLocal()
-    try:
-        entrada = load_conhecimento(db, conhecimento_id)
-        excluir_conhecimento(entrada)
-        empresa_id = entrada.empresa_id
-        db.commit()
-    finally:
-        db.close()
+async def conhecimento_delete(request: Request, conhecimento_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+    entrada = load_conhecimento(db, conhecimento_id)
+    excluir_conhecimento(entrada)
+    empresa_id = entrada.empresa_id
+    db.commit()
 
     return RedirectResponse(url=f"/admin/conhecimento?empresa_id={empresa_id}&message=Pergunta excluída com sucesso.", status_code=303)
 
 
 @admin_app.get("/agendamentos", response_class=HTMLResponse)
-async def agendamentos_list(request: Request):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
+async def agendamentos_list(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     empresa_id = _query_empresa_id(request)
     status = request.query_params.get("status")
     data = (request.query_params.get("data") or "").strip()
     servico_id = request.query_params.get("servico_id")
     cliente_id = request.query_params.get("cliente_id")
 
-    db = SessionLocal()
-    try:
-        empresas, empresa = _base_empresa_contexto(db, empresa_id)
-        servicos = (
-            db.query(Servico)
-            .filter(Servico.excluido_em.is_(None), *([Servico.empresa_id == empresa_id] if empresa_id else []))
-            .order_by(Servico.ordem_exibicao.asc(), Servico.nome.asc())
-            .all()
+    empresas, empresa = _base_empresa_contexto(db, empresa_id)
+    servicos = (
+        db.query(Servico)
+        .filter(Servico.excluido_em.is_(None), *([Servico.empresa_id == empresa_id] if empresa_id else []))
+        .order_by(Servico.ordem_exibicao.asc(), Servico.nome.asc())
+        .all()
+    )
+    clientes = (
+        db.query(ClienteFinal)
+        .filter(*([ClienteFinal.empresa_id == empresa_id] if empresa_id else []))
+        .order_by(ClienteFinal.nome.asc())
+        .all()
+    )
+    query = (
+        db.query(
+            Agendamento,
+            Empresa.nome.label("empresa_nome"),
+            Servico.nome.label("servico_nome"),
+            ClienteFinal.nome.label("cliente_nome"),
+            ClienteFinal.telefone.label("cliente_telefone"),
         )
-        clientes = (
-            db.query(ClienteFinal)
-            .filter(*([ClienteFinal.empresa_id == empresa_id] if empresa_id else []))
-            .order_by(ClienteFinal.nome.asc())
-            .all()
-        )
-        query = (
-            db.query(
-                Agendamento,
-                Empresa.nome.label("empresa_nome"),
-                Servico.nome.label("servico_nome"),
-                ClienteFinal.nome.label("cliente_nome"),
-                ClienteFinal.telefone.label("cliente_telefone"),
-            )
-            .join(Empresa, Agendamento.empresa_id == Empresa.id)
-            .join(Servico, Agendamento.servico_id == Servico.id)
-            .join(ClienteFinal, Agendamento.cliente_final_id == ClienteFinal.id)
-            .filter(*([Agendamento.empresa_id == empresa_id] if empresa_id else []))
-            .order_by(Agendamento.data_hora.desc())
-        )
-        if status:
-            query = query.filter(Agendamento.status == status)
-        if data:
-            try:
-                data_obj = datetime.fromisoformat(data).date()
-            except ValueError:
-                data_obj = None
-            if data_obj:
-                query = query.filter(func.date(Agendamento.data_hora) == data_obj)
-        if servico_id:
-            query = query.filter(Agendamento.servico_id == int(servico_id))
-        if cliente_id:
-            query = query.filter(Agendamento.cliente_final_id == int(cliente_id))
-        registros = query.all()
-    finally:
-        db.close()
+        .join(Empresa, Agendamento.empresa_id == Empresa.id)
+        .join(Servico, Agendamento.servico_id == Servico.id)
+        .join(ClienteFinal, Agendamento.cliente_final_id == ClienteFinal.id)
+        .filter(*([Agendamento.empresa_id == empresa_id] if empresa_id else []))
+        .order_by(Agendamento.data_hora.desc())
+    )
+    if status:
+        query = query.filter(Agendamento.status == status)
+    if data:
+        try:
+            data_obj = datetime.fromisoformat(data).date()
+        except ValueError:
+            data_obj = None
+        if data_obj:
+            query = query.filter(func.date(Agendamento.data_hora) == data_obj)
+    if servico_id:
+        query = query.filter(Agendamento.servico_id == int(servico_id))
+    if cliente_id:
+        query = query.filter(Agendamento.cliente_final_id == int(cliente_id))
+    registros = query.all()
 
     agendamentos = [
         {
@@ -962,78 +803,62 @@ async def agendamentos_list(request: Request):
 
 
 @admin_app.post("/agendamentos/{agendamento_id}/status")
-async def agendamento_status_submit(request: Request, agendamento_id: int):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
+async def agendamento_status_submit(request: Request, agendamento_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     form = await request.form()
     status = (form.get("status") or "").strip()
     if not _agendamento_status_permitido(status):
         raise HTTPException(status_code=400, detail="status_invalido")
 
     empresa_id = request.query_params.get("empresa_id") or form.get("empresa_id")
-    db = SessionLocal()
-    try:
-        query = db.query(Agendamento).filter_by(id=agendamento_id)
-        if empresa_id:
-            query = query.filter(Agendamento.empresa_id == int(empresa_id))
-        agendamento = query.first()
-        if not agendamento:
-            raise HTTPException(status_code=404, detail="agendamento_nao_encontrado")
+    query = db.query(Agendamento).filter_by(id=agendamento_id)
+    if empresa_id:
+        query = query.filter(Agendamento.empresa_id == int(empresa_id))
+    agendamento = query.first()
+    if not agendamento:
+        raise HTTPException(status_code=404, detail="agendamento_nao_encontrado")
 
-        agendamento.status = status
-        if status == "cancelado":
-            agendamento.cancelado_em = datetime.utcnow()
-        db.commit()
-        empresa_id = agendamento.empresa_id
-    finally:
-        db.close()
+    agendamento.status = status
+    if status == "cancelado":
+        agendamento.cancelado_em = datetime.utcnow()
+    db.commit()
+    empresa_id = agendamento.empresa_id
 
     return RedirectResponse(url=f"/admin/agendamentos?empresa_id={empresa_id}&message=Agendamento atualizado com sucesso.", status_code=303)
 
 
 @admin_app.get("/clientes", response_class=HTMLResponse)
-async def clientes_list(request: Request):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
+async def clientes_list(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     empresa_id = _query_empresa_id(request)
     q = (request.query_params.get("q") or "").strip()
     sort = (request.query_params.get("sort") or "recente").strip()
 
-    db = SessionLocal()
-    try:
-        empresas, empresa = _base_empresa_contexto(db, empresa_id)
-        query = (
-            db.query(
-                ClienteFinal,
-                Empresa.nome.label("empresa_nome"),
-                func.count(Agendamento.id).label("agendamentos_count"),
-                func.max(Agendamento.data_hora).label("ultimo_atendimento"),
-            )
-            .join(Empresa, ClienteFinal.empresa_id == Empresa.id)
-            .outerjoin(Agendamento, Agendamento.cliente_final_id == ClienteFinal.id)
-            .filter(*([ClienteFinal.empresa_id == empresa_id] if empresa_id else []))
-            .group_by(ClienteFinal.id, Empresa.nome)
+    empresas, empresa = _base_empresa_contexto(db, empresa_id)
+    query = (
+        db.query(
+            ClienteFinal,
+            Empresa.nome.label("empresa_nome"),
+            func.count(Agendamento.id).label("agendamentos_count"),
+            func.max(Agendamento.data_hora).label("ultimo_atendimento"),
         )
-        if q:
-            like = f"%{q}%"
-            query = query.filter(or_(ClienteFinal.nome.ilike(like), ClienteFinal.telefone.ilike(like)))
+        .join(Empresa, ClienteFinal.empresa_id == Empresa.id)
+        .outerjoin(Agendamento, Agendamento.cliente_final_id == ClienteFinal.id)
+        .filter(*([ClienteFinal.empresa_id == empresa_id] if empresa_id else []))
+        .group_by(ClienteFinal.id, Empresa.nome)
+    )
+    if q:
+        like = f"%{q}%"
+        query = query.filter(or_(ClienteFinal.nome.ilike(like), ClienteFinal.telefone.ilike(like)))
 
-        if sort == "nome":
-            query = query.order_by(ClienteFinal.nome.asc())
-        elif sort == "agendamentos":
-            query = query.order_by(func.count(Agendamento.id).desc(), ClienteFinal.nome.asc())
-        elif sort == "ultimo":
-            query = query.order_by(func.max(Agendamento.data_hora).desc().nullslast())
-        else:
-            query = query.order_by(ClienteFinal.criado_em.desc())
+    if sort == "nome":
+        query = query.order_by(ClienteFinal.nome.asc())
+    elif sort == "agendamentos":
+        query = query.order_by(func.count(Agendamento.id).desc(), ClienteFinal.nome.asc())
+    elif sort == "ultimo":
+        query = query.order_by(func.max(Agendamento.data_hora).desc().nullslast())
+    else:
+        query = query.order_by(ClienteFinal.criado_em.desc())
 
-        registros = query.all()
-    finally:
-        db.close()
+    registros = query.all()
 
     clientes = [
         {
@@ -1065,34 +890,26 @@ async def clientes_list(request: Request):
 
 
 @admin_app.get("/clientes/{cliente_id}", response_class=HTMLResponse)
-async def cliente_detail(request: Request, cliente_id: int):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
+async def cliente_detail(request: Request, cliente_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     empresa_id = _query_empresa_id(request)
-    db = SessionLocal()
-    try:
-        cliente = load_cliente(db, cliente_id)
-        if empresa_id and cliente.empresa_id != empresa_id:
-            raise HTTPException(status_code=404, detail="cliente_nao_encontrado")
+    cliente = load_cliente(db, cliente_id)
+    if empresa_id and cliente.empresa_id != empresa_id:
+        raise HTTPException(status_code=404, detail="cliente_nao_encontrado")
 
-        empresa = load_empresa(db, cliente.empresa_id)
-        agendamentos = (
-            db.query(Agendamento)
-            .options(joinedload(Agendamento.servico))
-            .filter_by(cliente_final_id=cliente.id)
-            .order_by(Agendamento.data_hora.desc())
-            .all()
-        )
-        solicitacoes = (
-            db.query(SolicitacaoAtendimento)
-            .filter_by(cliente_id=cliente.id)
-            .order_by(SolicitacaoAtendimento.criado_em.desc())
-            .all()
-        )
-    finally:
-        db.close()
+    empresa = load_empresa(db, cliente.empresa_id)
+    agendamentos = (
+        db.query(Agendamento)
+        .options(joinedload(Agendamento.servico))
+        .filter_by(cliente_final_id=cliente.id)
+        .order_by(Agendamento.data_hora.desc())
+        .all()
+    )
+    solicitacoes = (
+        db.query(SolicitacaoAtendimento)
+        .filter_by(cliente_id=cliente.id)
+        .order_by(SolicitacaoAtendimento.criado_em.desc())
+        .all()
+    )
 
     return templates.TemplateResponse(
         request,
@@ -1109,39 +926,31 @@ async def cliente_detail(request: Request, cliente_id: int):
 
 
 @admin_app.get("/solicitacoes-atendimento", response_class=HTMLResponse)
-async def solicitacoes_atendimento_list(request: Request):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
+async def solicitacoes_atendimento_list(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     empresa_id = request.query_params.get("empresa_id")
     if empresa_id == "":
         empresa_id = None
 
-    db = SessionLocal()
-    try:
-        empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
-        if not empresa_id and len(empresas) == 1:
-            empresa_id = str(empresas[0].id)
+    empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
+    if not empresa_id and len(empresas) == 1:
+        empresa_id = str(empresas[0].id)
 
-        registros = []
-        if empresa_id:
-            query = (
-                db.query(
-                    SolicitacaoAtendimento,
-                    Empresa.nome.label("empresa_nome"),
-                    ClienteFinal.nome.label("cliente_nome"),
-                    ClienteFinal.telefone.label("cliente_telefone"),
-                )
-                .join(Empresa, SolicitacaoAtendimento.empresa_id == Empresa.id)
-                .outerjoin(ClienteFinal, SolicitacaoAtendimento.cliente_id == ClienteFinal.id)
-                .filter(SolicitacaoAtendimento.empresa_id == int(empresa_id))
-                .filter(SolicitacaoAtendimento.status == STATUS_PENDENTE)
-                .order_by(SolicitacaoAtendimento.criado_em.desc(), SolicitacaoAtendimento.id.desc())
+    registros = []
+    if empresa_id:
+        query = (
+            db.query(
+                SolicitacaoAtendimento,
+                Empresa.nome.label("empresa_nome"),
+                ClienteFinal.nome.label("cliente_nome"),
+                ClienteFinal.telefone.label("cliente_telefone"),
             )
-            registros = query.all()
-    finally:
-        db.close()
+            .join(Empresa, SolicitacaoAtendimento.empresa_id == Empresa.id)
+            .outerjoin(ClienteFinal, SolicitacaoAtendimento.cliente_id == ClienteFinal.id)
+            .filter(SolicitacaoAtendimento.empresa_id == int(empresa_id))
+            .filter(SolicitacaoAtendimento.status == STATUS_PENDENTE)
+            .order_by(SolicitacaoAtendimento.criado_em.desc(), SolicitacaoAtendimento.id.desc())
+        )
+        registros = query.all()
 
     solicitacoes = [
         {
@@ -1173,11 +982,7 @@ async def solicitacoes_atendimento_list(request: Request):
 
 
 @admin_app.post("/solicitacoes-atendimento/{solicitacao_id}/status")
-async def solicitacao_atendimento_status_submit(request: Request, solicitacao_id: int):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
+async def solicitacao_atendimento_status_submit(request: Request, solicitacao_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     form = await request.form()
     empresa_id = request.query_params.get("empresa_id") or form.get("empresa_id")
     status = (form.get("status") or "").strip()
@@ -1185,19 +990,15 @@ async def solicitacao_atendimento_status_submit(request: Request, solicitacao_id
     if status not in {STATUS_EM_ATENDIMENTO, STATUS_FINALIZADO}:
         raise HTTPException(status_code=400, detail="status_invalido")
 
-    db = SessionLocal()
-    try:
-        query = db.query(SolicitacaoAtendimento).filter_by(id=solicitacao_id)
-        if empresa_id:
-            query = query.filter(SolicitacaoAtendimento.empresa_id == int(empresa_id))
+    query = db.query(SolicitacaoAtendimento).filter_by(id=solicitacao_id)
+    if empresa_id:
+        query = query.filter(SolicitacaoAtendimento.empresa_id == int(empresa_id))
 
-        solicitacao = query.first()
-        if not solicitacao:
-            raise HTTPException(status_code=404, detail="solicitacao_nao_encontrada")
+    solicitacao = query.first()
+    if not solicitacao:
+        raise HTTPException(status_code=404, detail="solicitacao_nao_encontrada")
 
-        atualizar_status_solicitacao_atendimento(db, solicitacao, status)
-    finally:
-        db.close()
+    atualizar_status_solicitacao_atendimento(db, solicitacao, status)
 
     mensagem = "Solicitação atualizada com sucesso."
     return RedirectResponse(
@@ -1207,18 +1008,10 @@ async def solicitacao_atendimento_status_submit(request: Request, solicitacao_id
 
 
 @admin_app.get("/insights", response_class=HTMLResponse)
-async def insights_page(request: Request):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
+async def insights_page(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     empresa_id = _query_empresa_id(request)
-    db = SessionLocal()
-    try:
-        empresas, empresa = _base_empresa_contexto(db, empresa_id)
-        frases = gerar_insights(db, empresa.id if empresa else empresa_id)
-    finally:
-        db.close()
+    empresas, empresa = _base_empresa_contexto(db, empresa_id)
+    frases = gerar_insights(db, empresa.id if empresa else empresa_id)
 
     return templates.TemplateResponse(
         request,
@@ -1237,11 +1030,7 @@ DIAS_INATIVIDADE_PERMITIDOS = (30, 60, 90, 180)
 
 
 @admin_app.get("/clientes-inativos", response_class=HTMLResponse)
-async def clientes_inativos_page(request: Request):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
+async def clientes_inativos_page(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     empresa_id = _query_empresa_id(request)
     try:
         dias = int(request.query_params.get("dias") or 90)
@@ -1250,12 +1039,8 @@ async def clientes_inativos_page(request: Request):
     if dias not in DIAS_INATIVIDADE_PERMITIDOS:
         dias = 90
 
-    db = SessionLocal()
-    try:
-        empresas, empresa = _base_empresa_contexto(db, empresa_id)
-        clientes = listar_clientes_inativos(db, empresa.id if empresa else empresa_id, dias)
-    finally:
-        db.close()
+    empresas, empresa = _base_empresa_contexto(db, empresa_id)
+    clientes = listar_clientes_inativos(db, empresa.id if empresa else empresa_id, dias)
 
     return templates.TemplateResponse(
         request,
@@ -1273,16 +1058,8 @@ async def clientes_inativos_page(request: Request):
 
 
 @admin_app.get("/configuracoes", response_class=HTMLResponse)
-async def configuracoes_page(request: Request):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
-    db = SessionLocal()
-    try:
-        config = obter_configuracao(db)
-    finally:
-        db.close()
+async def configuracoes_page(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+    config = obter_configuracao(db)
 
     return templates.TemplateResponse(
         request,
@@ -1298,39 +1075,31 @@ async def configuracoes_page(request: Request):
 
 
 @admin_app.post("/configuracoes")
-async def configuracoes_submit(request: Request):
-    redirect_response = admin_required(request)
-    if redirect_response:
-        return redirect_response
-
+async def configuracoes_submit(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     form = await request.form()
-    db = SessionLocal()
-    try:
-        campos = {
-            "meta_phone_number_id": (form.get("meta_phone_number_id") or "").strip(),
-            "meta_business_id": parse_optional_str(form.get("meta_business_id")),
-            "bot_activation_words_raw": (form.get("bot_activation_words_raw") or "oibot").strip(),
-            "meta_template_lembrete_nome": (form.get("meta_template_lembrete_nome") or "lembrete_agendamento").strip(),
-            "meta_template_lembrete_idioma": (form.get("meta_template_lembrete_idioma") or "pt_BR").strip(),
-            "lembrete_antecedencia_horas": parse_optional_int(form.get("lembrete_antecedencia_horas")) or 24,
-            "lembrete_intervalo_minutos": parse_optional_int(form.get("lembrete_intervalo_minutos")) or 15,
-            "ai_enabled": parse_bool(form.get("ai_enabled")),
-            "ai_provider": (form.get("ai_provider") or "openai").strip(),
-            "ai_model": (form.get("ai_model") or "gpt-4o-mini").strip(),
-            "ai_timeout_segundos": parse_optional_float(form.get("ai_timeout_segundos")) or 6.0,
-            "ai_cache_ttl_segundos": parse_optional_int(form.get("ai_cache_ttl_segundos")) or 600,
-        }
+    campos = {
+        "meta_phone_number_id": (form.get("meta_phone_number_id") or "").strip(),
+        "meta_business_id": parse_optional_str(form.get("meta_business_id")),
+        "bot_activation_words_raw": (form.get("bot_activation_words_raw") or "oibot").strip(),
+        "meta_template_lembrete_nome": (form.get("meta_template_lembrete_nome") or "lembrete_agendamento").strip(),
+        "meta_template_lembrete_idioma": (form.get("meta_template_lembrete_idioma") or "pt_BR").strip(),
+        "lembrete_antecedencia_horas": parse_optional_int(form.get("lembrete_antecedencia_horas")) or 24,
+        "lembrete_intervalo_minutos": parse_optional_int(form.get("lembrete_intervalo_minutos")) or 15,
+        "ai_enabled": parse_bool(form.get("ai_enabled")),
+        "ai_provider": (form.get("ai_provider") or "openai").strip(),
+        "ai_model": (form.get("ai_model") or "gpt-4o-mini").strip(),
+        "ai_timeout_segundos": parse_optional_float(form.get("ai_timeout_segundos")) or 6.0,
+        "ai_cache_ttl_segundos": parse_optional_int(form.get("ai_cache_ttl_segundos")) or 600,
+    }
 
-        meta_token_novo = (form.get("meta_token") or "").strip()
-        if meta_token_novo:
-            campos["meta_token"] = meta_token_novo
+    meta_token_novo = (form.get("meta_token") or "").strip()
+    if meta_token_novo:
+        campos["meta_token"] = meta_token_novo
 
-        ai_api_key_novo = (form.get("ai_api_key") or "").strip()
-        if ai_api_key_novo:
-            campos["ai_api_key"] = ai_api_key_novo
+    ai_api_key_novo = (form.get("ai_api_key") or "").strip()
+    if ai_api_key_novo:
+        campos["ai_api_key"] = ai_api_key_novo
 
-        atualizar_configuracao(db, **campos)
-    finally:
-        db.close()
+    atualizar_configuracao(db, **campos)
 
     return RedirectResponse(url="/admin/configuracoes?message=Configurações atualizadas com sucesso.", status_code=303)

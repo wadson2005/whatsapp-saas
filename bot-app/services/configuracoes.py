@@ -4,9 +4,9 @@ import logging
 from datetime import datetime
 from types import SimpleNamespace
 
-from config import settings
-from database import SessionLocal
-from models import ConfiguracaoSistema
+from core.config import settings
+from core.database import SessionLocal
+from core.models import ConfiguracaoSistema
 
 logger = logging.getLogger(__name__)
 

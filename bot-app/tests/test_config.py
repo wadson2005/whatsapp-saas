@@ -26,8 +26,8 @@ def carregar_settings():
     for chave, valor in BOOTSTRAP_ENV.items():
         os.environ.setdefault(chave, valor)
 
-    sys.modules.pop("config", None)
-    return importlib.import_module("config").Settings
+    sys.modules.pop("core.config", None)
+    return importlib.import_module("core.config").Settings
 
 
 @pytest.mark.parametrize("env_value", [None, ""])

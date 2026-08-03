@@ -1,8 +1,8 @@
 from sqlalchemy import inspect, text
 
-import models  # noqa: F401
-from database import Base, engine
-from db_compat import sql_bool
+from . import models  # noqa: F401
+from .database import Base, engine
+from .db_compat import sql_bool
 
 
 def _add_column_if_missing(conn, table_name: str, column_ddl: str):

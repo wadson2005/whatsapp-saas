@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from models import ClienteFinal, Empresa, SolicitacaoAtendimento
+from core.models import ClienteFinal, Empresa, SolicitacaoAtendimento
 
 STATUS_PENDENTE = "pendente"
 STATUS_EM_ATENDIMENTO = "em_atendimento"

@@ -1,6 +1,10 @@
+import logging
+
 import httpx
 
-from configuracoes import obter_configuracao_isolada
+from services.configuracoes import obter_configuracao_isolada
+
+logger = logging.getLogger(__name__)
 
 
 def _api_url_e_headers() -> tuple[str, dict[str, str]]:
@@ -10,10 +14,30 @@ def _api_url_e_headers() -> tuple[str, dict[str, str]]:
     return url, headers
 
 
-async def enviar_botoes(numero: str, texto: str, botoes: list[dict], rodape: str | None = None):
+async def _enviar(payload: dict) -> dict:
+    """POSTa na Graph API e devolve o JSON de resposta.
+
+    Nunca deixa um erro de rede (timeout, DNS, conexão recusada) propagar como
+    exceção — devolve `{"error": {...}}` para que o chamador trate do mesmo jeito
+    que trataria uma rejeição da própria Meta (ver `lembretes.enviar_lembrete`).
     """
+    url, headers = _api_url_e_headers()
+    try:
+        async with httpx.AsyncClient() as client:
+            resposta = await client.post(url, headers=headers, json=payload)
+            resultado = resposta.json()
+    except httpx.HTTPError as exc:
+        logger.error("Falha de rede ao chamar a Graph API: %s", exc)
+        return {"error": {"message": str(exc)}}
+
+    logger.debug("Graph API respondeu status=%s: %s", resposta.status_code, resultado)
+    return resultado
+
+
+async def enviar_botoes(numero: str, texto: str, botoes: list[dict], rodape: str | None = None) -> dict:
+    """Envia até 3 botões de resposta rápida (limite da própria Meta).
+
     botoes: lista de dicts no formato {"id": "...", "titulo": "..."}
-    Máximo de 3 botões (limite da própria Meta).
     """
     payload = {
         "messaging_product": "whatsapp",
@@ -34,18 +58,12 @@ async def enviar_botoes(numero: str, texto: str, botoes: list[dict], rodape: str
     if rodape:
         payload["interactive"]["footer"] = {"text": rodape}
 
-    url, headers = _api_url_e_headers()
-    async with httpx.AsyncClient() as client:
-        resposta = await client.post(url, headers=headers, json=payload)
-        resultado = resposta.json()
-        print(f"[DEBUG META] enviar_botoes -> status {resposta.status_code}: {resultado}")
-        return resultado
+    return await _enviar(payload)
 
 
-async def enviar_lista(numero: str, texto: str, titulo_botao: str, secoes: list[dict], rodape: str | None = None):
-    """
-    Para quando há mais de 3 opções (ex: lista de serviços) — usa o componente de
-    lista da Meta em vez de botões, que tem limite de 3.
+async def enviar_lista(numero: str, texto: str, titulo_botao: str, secoes: list[dict], rodape: str | None = None) -> dict:
+    """Envia uma lista de opções (para quando há mais de 3, limite dos botões simples).
+
     secoes: [{"titulo": "Serviços", "linhas": [{"id": "...", "titulo": "...", "descricao": "..."}]}]
     """
     MAX_LINHAS_TOTAL = 10
@@ -89,19 +107,15 @@ async def enviar_lista(numero: str, texto: str, titulo_botao: str, secoes: list[
     if rodape:
         payload["interactive"]["footer"] = {"text": rodape}
 
-    url, headers = _api_url_e_headers()
-    async with httpx.AsyncClient() as client:
-        resposta = await client.post(url, headers=headers, json=payload)
-        resultado = resposta.json()
-        print(f"[DEBUG META] enviar_botoes -> status {resposta.status_code}: {resultado}")
-        return resultado
+    return await _enviar(payload)
 
 
-async def enviar_template(numero: str, nome_template: str, idioma: str, parametros_corpo: list[str]):
-    """
-    Envia mensagem via template pré-aprovado da Meta (obrigatório fora da janela de
-    24h de atendimento ao cliente, quando não é permitido enviar texto/interativo livre).
-    parametros_corpo: valores posicionais para os placeholders {{1}}, {{2}}... do corpo do template.
+async def enviar_template(numero: str, nome_template: str, idioma: str, parametros_corpo: list[str]) -> dict:
+    """Envia mensagem via template pré-aprovado da Meta.
+
+    Obrigatório fora da janela de 24h de atendimento ao cliente, quando não é
+    permitido enviar texto/interativo livre. `parametros_corpo` são os valores
+    posicionais para os placeholders {{1}}, {{2}}... do corpo do template.
     """
     payload = {
         "messaging_product": "whatsapp",
@@ -120,9 +134,4 @@ async def enviar_template(numero: str, nome_template: str, idioma: str, parametr
         },
     }
 
-    url, headers = _api_url_e_headers()
-    async with httpx.AsyncClient() as client:
-        resposta = await client.post(url, headers=headers, json=payload)
-        resultado = resposta.json()
-        print(f"[DEBUG META] enviar_template -> status {resposta.status_code}: {resultado}")
-        return resultado
+    return await _enviar(payload)

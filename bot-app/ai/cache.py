@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-from redis_client import redis_cliente
+from core.redis_client import redis_cliente
 
 PREFIXO_CACHE = "ai:cache"
 

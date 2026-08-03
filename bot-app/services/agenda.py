@@ -6,7 +6,7 @@ from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy.orm import joinedload
 
-from models import Agendamento, ClienteFinal, Empresa, Servico
+from core.models import Agendamento, ClienteFinal, Empresa, Servico
 
 DEFAULT_HORARIO_ABERTURA = time(8, 0)
 DEFAULT_HORARIO_FECHAMENTO = time(18, 0)
@@ -93,22 +93,6 @@ def _parse_lista_datas(valor) -> set[date]:
     return itens
 
 
-def _parse_lista_dias(valor) -> set[int]:
-    texto = (valor or "").strip()
-    if not texto:
-        return set()
-    itens = set()
-    for parte in texto.split(","):
-        parte = parte.strip()
-        if not parte:
-            continue
-        try:
-            itens.add(int(parte))
-        except ValueError:
-            continue
-    return itens
-
-
 def _parse_hora(valor, padrao: time) -> time:
     texto = _primeiro_texto(valor, padrao.strftime("%H:%M"))
     try:
@@ -139,7 +123,7 @@ def dias_indisponiveis(empresa: Empresa) -> set[int]:
 
 
 def dias_funcionamento(empresa: Empresa) -> set[int]:
-    dias = _parse_lista_dias(getattr(empresa, "dias_funcionamento", ""))
+    dias = _parse_lista_inteiros(empresa.dias_funcionamento)
     return dias if dias else {0, 1, 2, 3, 4, 5}
 
 
@@ -148,8 +132,8 @@ def datas_indisponiveis(empresa: Empresa) -> set[date]:
 
 
 def _horario_almoco(empresa: Empresa) -> tuple[time, time] | None:
-    inicio = getattr(empresa, "horario_almoco_inicio", None)
-    fim = getattr(empresa, "horario_almoco_fim", None)
+    inicio = empresa.horario_almoco_inicio
+    fim = empresa.horario_almoco_fim
     if not inicio or not fim:
         return None
     try:
@@ -415,14 +399,14 @@ def agendar_servico(
         db.add(cliente)
         db.flush()
 
-    fim_em = inicio_em + timedelta(minutes=duracao_servico(servico))
+    duracao = duracao_servico(servico)
     agendamento = Agendamento(
         empresa_id=empresa.id,
         cliente_final_id=cliente.id,
         servico_id=servico.id,
         data_hora=inicio_em,
-        fim_em=fim_em,
-        duracao_minutos=duracao_servico(servico),
+        fim_em=inicio_em + timedelta(minutes=duracao),
+        duracao_minutos=duracao,
         status="agendado",
     )
     db.add(agendamento)
@@ -442,9 +426,10 @@ def reagendar_agendamento(
     if not validacao.ok:
         return None, validacao
 
+    duracao = duracao_servico(servico)
     agendamento.data_hora = inicio_em
-    agendamento.fim_em = inicio_em + timedelta(minutes=duracao_servico(servico))
-    agendamento.duracao_minutos = duracao_servico(servico)
+    agendamento.fim_em = inicio_em + timedelta(minutes=duracao)
+    agendamento.duracao_minutos = duracao
     agendamento.status = "agendado"
     agendamento.lembrete_enviado_em = None
     db.commit()

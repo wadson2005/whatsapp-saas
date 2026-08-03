@@ -1,10 +1,18 @@
-from config import settings
-from database import SessionLocal
-from models import Empresa
+import sys
+
+from core.config import settings
+from core.database import SessionLocal
+from core.models import Empresa
 
 db = SessionLocal()
-empresa = db.query(Empresa).filter_by(slug=settings.seed_empresa_slug).first()
-empresa.ativo = False
-db.commit()
-print(f"Bot da '{empresa.nome}' está PAUSADO.")
-db.close()
+try:
+    empresa = db.query(Empresa).filter_by(slug=settings.seed_empresa_slug).first()
+    if empresa is None:
+        print(f"Nenhuma empresa encontrada com slug '{settings.seed_empresa_slug}'.")
+        sys.exit(1)
+
+    empresa.ativo = False
+    db.commit()
+    print(f"Bot da '{empresa.nome}' está PAUSADO.")
+finally:
+    db.close()

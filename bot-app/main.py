@@ -5,22 +5,23 @@ from contextlib import suppress
 from datetime import time
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.templating import Jinja2Templates
 
 from admin import admin_app, parse_optional_float
-from config import settings
-from configuracoes import obter_configuracao
 from conversa import processar_mensagem
-from database import SessionLocal
-from lembretes import enviar_lembretes_pendentes
-from models import Empresa, Servico
-from redis_client import redis_cliente
-from schema import ensure_schema
+from core.config import settings
+from core.database import SessionLocal, get_db
+from core.models import Empresa, Servico
+from core.redis_client import redis_cliente
+from core.schema import ensure_schema
+from services.configuracoes import obter_configuracao
+from services.lembretes import enviar_lembretes_pendentes
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ EVOLUTION_URL = settings.evolution_url
 EVOLUTION_API_KEY = settings.evolution_api_key
 
 
-def _empresa_cadastrada(db) -> bool:
+def _empresa_cadastrada(db: Session) -> bool:
     return db.query(Empresa.id).first() is not None
 
 
@@ -90,16 +91,11 @@ def _draft_error_response(request: Request, template_name: str, status_code: int
     )
 
 
-def _redirecionar_inicio(request: Request) -> RedirectResponse:
+def _redirecionar_inicio(request: Request, db: Session) -> RedirectResponse:
     if request.session.get("admin_authenticated"):
         return RedirectResponse(url="/admin/dashboard", status_code=303)
 
-    db = SessionLocal()
-    try:
-        existe_empresa = _empresa_cadastrada(db)
-    finally:
-        db.close()
-
+    existe_empresa = _empresa_cadastrada(db)
     return RedirectResponse(url="/admin/login" if existe_empresa else "/onboarding", status_code=303)
 
 
@@ -183,18 +179,14 @@ def _validar_configuracao_form(form) -> tuple[dict[str, str], dict]:
 
 
 @app.get("/", response_class=HTMLResponse)
-async def raiz(request: Request):
-    return _redirecionar_inicio(request)
+async def raiz(request: Request, db: Session = Depends(get_db)):
+    return _redirecionar_inicio(request, db)
 
 
 @app.get("/onboarding", response_class=HTMLResponse)
-async def onboarding_inicio(request: Request):
-    db = SessionLocal()
-    try:
-        if _empresa_cadastrada(db):
-            return RedirectResponse(url="/admin/login?message=Sua empresa já está configurada.", status_code=303)
-    finally:
-        db.close()
+async def onboarding_inicio(request: Request, db: Session = Depends(get_db)):
+    if _empresa_cadastrada(db):
+        return RedirectResponse(url="/admin/login?message=Sua empresa já está configurada.", status_code=303)
 
     return templates.TemplateResponse(
         request,
@@ -210,7 +202,7 @@ async def onboarding_inicio(request: Request):
 
 
 @app.post("/onboarding")
-async def onboarding_empresa_submit(request: Request):
+async def onboarding_empresa_submit(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
     nome = (form.get("nome") or "").strip()
     slug = (form.get("slug") or "").strip().lower()
@@ -218,12 +210,8 @@ async def onboarding_empresa_submit(request: Request):
 
     erros = _validar_empresa_form(nome, slug, segmento)
 
-    db = SessionLocal()
-    try:
-        if slug and db.query(Empresa.id).filter(Empresa.slug == slug).first():
-            erros["slug"] = "Já existe uma empresa com esse slug."
-    finally:
-        db.close()
+    if slug and db.query(Empresa.id).filter(Empresa.slug == slug).first():
+        erros["slug"] = "Já existe uma empresa com esse slug."
 
     if erros:
         return _draft_error_response(
@@ -260,7 +248,7 @@ async def onboarding_configurar(request: Request):
 
 
 @app.post("/onboarding/configurar")
-async def onboarding_configurar_submit(request: Request):
+async def onboarding_configurar_submit(request: Request, db: Session = Depends(get_db)):
     draft = _draft_onboarding(request)
     if not draft:
         return RedirectResponse(url="/onboarding", status_code=303)
@@ -268,24 +256,23 @@ async def onboarding_configurar_submit(request: Request):
     form = await request.form()
     erros, dados = _validar_configuracao_form(form)
 
-    db = SessionLocal()
+    if dados["evolution_instance_name"] and db.query(Empresa.id).filter(
+        Empresa.evolution_instance_name == dados["evolution_instance_name"]
+    ).first():
+        erros["evolution_instance_name"] = "Já existe uma empresa com essa instância."
+
+    if erros:
+        return _draft_error_response(
+            request,
+            "onboarding/setup.html",
+            400,
+            title="Configuração do WhatsApp",
+            step=2,
+            draft={**draft, **dados},
+            errors=erros,
+        )
+
     try:
-        if dados["evolution_instance_name"] and db.query(Empresa.id).filter(
-            Empresa.evolution_instance_name == dados["evolution_instance_name"]
-        ).first():
-            erros["evolution_instance_name"] = "Já existe uma empresa com essa instância."
-
-        if erros:
-            return _draft_error_response(
-                request,
-                "onboarding/setup.html",
-                400,
-                title="Configuração do WhatsApp",
-                step=2,
-                draft={**draft, **dados},
-                errors=erros,
-            )
-
         empresa = Empresa(
             nome=draft["nome"],
             slug=draft["slug"],
@@ -321,8 +308,6 @@ async def onboarding_configurar_submit(request: Request):
             draft={**draft, **dados},
             errors={"geral": "Não foi possível salvar a empresa com esses dados."},
         )
-    finally:
-        db.close()
 
     _clear_onboarding_draft(request)
     _save_onboarding_result(
@@ -355,15 +340,12 @@ async def healthz():
 
 
 @app.get("/readyz")
-async def readyz():
-    db = SessionLocal()
+async def readyz(db: Session = Depends(get_db)):
     try:
         db.execute(text("SELECT 1"))
         redis_cliente.ping()
     except Exception as exc:
         raise HTTPException(status_code=503, detail="servico_indisponivel") from exc
-    finally:
-        db.close()
 
     return {"status": "ok", "database": "ok", "redis": "ok"}
 
@@ -403,8 +385,8 @@ async def shutdown_lembretes():
 
 
 def extrair_conteudo(dados: dict) -> tuple[str | None, str | None]:
-    """
-    Retorna (texto, id_interacao).
+    """Retorna (texto, id_interacao).
+
     - Se for texto digitado: (texto_digitado, None)
     - Se for clique em botão/lista: (titulo_clicado, id_do_botao)
     """
@@ -426,9 +408,9 @@ def extrair_conteudo(dados: dict) -> tuple[str | None, str | None]:
 
 
 @app.post("/webhook")
-async def receber_mensagem(request: Request):
+async def receber_mensagem(request: Request, db: Session = Depends(get_db)):
     payload = await request.json()
-    print(f"[DEBUG PAYLOAD COMPLETO] {payload}")
+    logger.debug("Payload recebido no webhook: %s", payload)
     try:
         nome_instancia = payload["instance"]
         dados = payload["data"]
@@ -444,18 +426,14 @@ async def receber_mensagem(request: Request):
     if texto is None:
         return {"status": "tipo_de_mensagem_nao_suportado"}
 
-    db = SessionLocal()
-    try:
-        empresa = db.query(Empresa).filter_by(
-            evolution_instance_name=nome_instancia, ativo=True
-        ).first()
+    empresa = db.query(Empresa).filter_by(
+        evolution_instance_name=nome_instancia, ativo=True
+    ).first()
 
-        if not empresa:
-            return {"status": "empresa_nao_encontrada"}
+    if not empresa:
+        return {"status": "empresa_nao_encontrada"}
 
-        # id_interacao tem prioridade sobre o texto quando existe (clique é mais preciso que texto)
-        await processar_mensagem(db, empresa, numero, texto, id_interacao)
-    finally:
-        db.close()
+    # id_interacao tem prioridade sobre o texto quando existe (clique é mais preciso que texto)
+    await processar_mensagem(db, empresa, numero, texto, id_interacao)
 
     return {"status": "ok"}

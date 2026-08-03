@@ -7,8 +7,9 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import func
 
-from agenda import PERIODOS
-from models import Agendamento, ClienteFinal, ConversaIniciada, Empresa, Servico, SolicitacaoAtendimento
+from core.models import Agendamento, ClienteFinal, ConversaIniciada, Empresa, Servico, SolicitacaoAtendimento
+
+from .agenda import PERIODOS
 
 logger = logging.getLogger(__name__)
 

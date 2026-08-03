@@ -1,49 +1,23 @@
 import asyncio
 import importlib
-import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-BOOTSTRAP_ENV = {
-    "REDIS_URL": "redis://localhost:6379/1",
-    "EVOLUTION_API_KEY": "x",
-    "META_TOKEN": "tok-env",
-    "META_PHONE_NUMBER_ID": "phone-env",
-    "ADMIN_USERNAME": "admin",
-    "ADMIN_PASSWORD": "senha-super-segura-123",
-    "SESSION_SECRET_KEY": "0123456789abcdef0123456789abcdef",
-}
+from conftest import preparar_ambiente
 
-MODULOS = [
-    "main", "admin", "config", "database", "models", "schema", "conversa",
-    "redis_client", "agenda", "meta_client", "atendimento_humano", "lembretes",
-    "ai", "ai.provider", "ai.service", "ai.prompts", "ai.models", "ai.cache",
-    "texto_utils", "conhecimento", "metricas", "configuracoes",
-]
+ENV_OVERRIDES = {"META_TOKEN": "tok-env", "META_PHONE_NUMBER_ID": "phone-env"}
 
 
 def carregar_app(monkeypatch, tmp_path: Path):
-    project_root = str(PROJECT_ROOT)
-    if project_root not in sys.path:
-        sys.path.insert(0, project_root)
-
-    database_path = tmp_path / "bot-app.db"
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
-    for chave, valor in BOOTSTRAP_ENV.items():
-        monkeypatch.setenv(chave, valor)
-
-    for modulo in MODULOS:
-        sys.modules.pop(modulo, None)
-
+    preparar_ambiente(monkeypatch, tmp_path, ENV_OVERRIDES)
     main = importlib.import_module("main")
-    models = importlib.import_module("models")
-    configuracoes = importlib.import_module("configuracoes")
-    meta_client = importlib.import_module("meta_client")
-    lembretes = importlib.import_module("lembretes")
+    models = importlib.import_module("core.models")
+    configuracoes = importlib.import_module("services.configuracoes")
+    meta_client = importlib.import_module("integrations.meta_client")
+    lembretes = importlib.import_module("services.lembretes")
     ai_service_module = importlib.import_module("ai.service")
     main.ensure_schema()
     return main, models, configuracoes, meta_client, lembretes, ai_service_module
@@ -232,7 +206,7 @@ def test_meta_client_usa_configuracao_atualizada_sem_restart(monkeypatch, tmp_pa
             urls_chamadas.append((url, headers.get("Authorization")))
             return _RespostaFalsa()
 
-    with patch("meta_client.httpx.AsyncClient", FakeAsyncClient):
+    with patch("integrations.meta_client.httpx.AsyncClient", FakeAsyncClient):
         asyncio.run(meta_client.enviar_botoes("5511900000001", "oi", [{"id": "menu", "titulo": "Menu"}]))
 
         db = main.SessionLocal()

@@ -5,10 +5,11 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.orm import joinedload
 
-from agenda import formatar_data_hora
-from configuracoes import obter_configuracao
-from meta_client import enviar_template
-from models import Agendamento
+from core.models import Agendamento
+from integrations.meta_client import enviar_template
+
+from .agenda import formatar_data_hora
+from .configuracoes import obter_configuracao
 
 logger = logging.getLogger(__name__)
 

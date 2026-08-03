@@ -2,37 +2,12 @@ import asyncio
 import importlib
 import json
 import sys
-from pathlib import Path
 from types import SimpleNamespace
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-BOOTSTRAP_ENV = {
-    "DATABASE_URL": "sqlite:///:memory:",
-    "REDIS_URL": "redis://localhost:6379/1",
-    "EVOLUTION_API_KEY": "x",
-    "META_TOKEN": "x",
-    "META_PHONE_NUMBER_ID": "x",
-    "ADMIN_USERNAME": "admin",
-    "ADMIN_PASSWORD": "senha-super-segura-123",
-    "SESSION_SECRET_KEY": "0123456789abcdef0123456789abcdef",
-}
+from conftest import BOOTSTRAP_ENV as _SHARED_ENV
+from conftest import PROJECT_ROOT, FakeRedis
 
-
-class FakeRedis:
-    def __init__(self):
-        self.storage = {}
-
-    def get(self, key):
-        return self.storage.get(key)
-
-    def set(self, key, value, ex=None):
-        self.storage[key] = value
-
-    def delete(self, key):
-        self.storage.pop(key, None)
-
-    def ping(self):
-        return True
+BOOTSTRAP_ENV = {**_SHARED_ENV, "DATABASE_URL": "sqlite:///:memory:"}
 
 
 class FakeAIProvider:
@@ -59,7 +34,7 @@ def carregar_ai(monkeypatch):
     for chave, valor in BOOTSTRAP_ENV.items():
         monkeypatch.setenv(chave, valor)
 
-    for modulo in ["config", "redis_client", "ai.cache", "ai.models", "ai.provider", "ai.prompts", "ai.service", "ai"]:
+    for modulo in ["core.config", "core.redis_client", "ai.cache", "ai.models", "ai.provider", "ai.prompts", "ai.service", "ai"]:
         sys.modules.pop(modulo, None)
 
     cache = importlib.import_module("ai.cache")

@@ -1,6 +1,6 @@
-from config import settings
-from database import SessionLocal
-from models import Empresa, Servico
+from core.config import settings
+from core.database import SessionLocal
+from core.models import Empresa, Servico
 
 db = SessionLocal()
 

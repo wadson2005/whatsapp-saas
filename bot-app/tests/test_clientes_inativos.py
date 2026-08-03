@@ -1,45 +1,17 @@
 import importlib
-import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-BOOTSTRAP_ENV = {
-    "REDIS_URL": "redis://localhost:6379/1",
-    "EVOLUTION_API_KEY": "x",
-    "META_TOKEN": "x",
-    "META_PHONE_NUMBER_ID": "x",
-    "ADMIN_USERNAME": "admin",
-    "ADMIN_PASSWORD": "senha-super-segura-123",
-    "SESSION_SECRET_KEY": "0123456789abcdef0123456789abcdef",
-}
-
-MODULOS = [
-    "main", "admin", "config", "database", "models", "schema", "conversa",
-    "redis_client", "agenda", "meta_client", "atendimento_humano", "lembretes",
-    "ai", "ai.provider", "ai.service", "ai.prompts", "ai.models", "ai.cache",
-    "texto_utils", "conhecimento", "metricas", "configuracoes",
-]
+from conftest import preparar_ambiente
 
 
 def carregar_app(monkeypatch, tmp_path: Path):
-    project_root = str(PROJECT_ROOT)
-    if project_root not in sys.path:
-        sys.path.insert(0, project_root)
-
-    database_path = tmp_path / "bot-app.db"
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
-    for chave, valor in BOOTSTRAP_ENV.items():
-        monkeypatch.setenv(chave, valor)
-
-    for modulo in MODULOS:
-        sys.modules.pop(modulo, None)
-
+    preparar_ambiente(monkeypatch, tmp_path)
     main = importlib.import_module("main")
-    models = importlib.import_module("models")
-    metricas = importlib.import_module("metricas")
+    models = importlib.import_module("core.models")
+    metricas = importlib.import_module("services.metricas")
     main.ensure_schema()
     return main, models, metricas
 

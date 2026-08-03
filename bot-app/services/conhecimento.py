@@ -5,8 +5,9 @@ from datetime import datetime
 
 from sqlalchemy.orm import joinedload
 
-from models import EmpresaConhecimento
-from texto_utils import normalizar_texto
+from core.models import EmpresaConhecimento
+
+from .texto_utils import normalizar_texto
 
 LIMIAR_CONFIANCA = 0.6
 TAMANHO_PREFIXO = 5
