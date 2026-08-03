@@ -2,6 +2,7 @@ from sqlalchemy import inspect, text
 
 import models  # noqa: F401
 from database import Base, engine
+from db_compat import sql_bool
 
 
 def _add_column_if_missing(conn, table_name: str, column_ddl: str):
@@ -27,8 +28,12 @@ def ensure_schema():
         _add_column_if_missing(conn, "empresas", "intervalo_entre_atendimentos_minutos INTEGER DEFAULT 15")
         _add_column_if_missing(conn, "empresas", "dias_indisponiveis VARCHAR DEFAULT ''")
         _add_column_if_missing(conn, "empresas", "datas_indisponiveis VARCHAR DEFAULT ''")
-        _add_column_if_missing(conn, "empresas", "atendimento_automatico_ativo BOOLEAN DEFAULT 1")
-        _add_column_if_missing(conn, "empresas", "permitir_atendimento_humano BOOLEAN DEFAULT 1")
+        _add_column_if_missing(
+            conn, "empresas", f"atendimento_automatico_ativo BOOLEAN DEFAULT {sql_bool(True)}"
+        )
+        _add_column_if_missing(
+            conn, "empresas", f"permitir_atendimento_humano BOOLEAN DEFAULT {sql_bool(True)}"
+        )
         _add_column_if_missing(conn, "empresas", "horario_resposta_inicio VARCHAR(5) DEFAULT '08:00'")
         _add_column_if_missing(conn, "empresas", "horario_resposta_fim VARCHAR(5) DEFAULT '18:00'")
         _add_column_if_missing(conn, "empresas", "mensagem_fora_horario VARCHAR")
