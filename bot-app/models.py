@@ -138,3 +138,35 @@ class ConversaIniciada(Base):
     criado_em = Column(DateTime, default=datetime.utcnow)
 
     empresa = relationship("Empresa")
+
+
+class ConfiguracaoSistema(Base):
+    """Linha única (id=1) com as configurações operacionais editáveis pelo painel.
+
+    Os valores do .env (config.py) só servem de valor inicial, copiado pra cá na
+    primeira leitura — depois disso, esta tabela é a fonte viva.
+    """
+
+    __tablename__ = "configuracao_sistema"
+
+    id = Column(Integer, primary_key=True)
+
+    meta_token = Column(String)
+    meta_phone_number_id = Column(String)
+    meta_business_id = Column(String)
+
+    bot_activation_words_raw = Column(String, default="oibot")
+
+    meta_template_lembrete_nome = Column(String, default="lembrete_agendamento")
+    meta_template_lembrete_idioma = Column(String, default="pt_BR")
+    lembrete_antecedencia_horas = Column(Integer, default=24)
+    lembrete_intervalo_minutos = Column(Integer, default=15)
+
+    ai_enabled = Column(Boolean, default=False)
+    ai_provider = Column(String, default="openai")
+    ai_api_key = Column(String)
+    ai_model = Column(String, default="gpt-4o-mini")
+    ai_timeout_segundos = Column(Float, default=6.0)
+    ai_cache_ttl_segundos = Column(Integer, default=600)
+
+    atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -61,6 +61,7 @@ O caminho de execução hoje é este:
 │   │   ├── provider.py
 │   │   └── service.py
 │   ├── conhecimento.py
+│   ├── configuracoes.py
 │   ├── conversa.py
 │   ├── criar_tabelas.py
 │   ├── database.py
@@ -80,6 +81,7 @@ O caminho de execução hoje é este:
 │   │       ├── cliente_detail.html
 │   │       ├── clientes_inativos.html
 │   │       ├── clientes_list.html
+│   │       ├── configuracoes.html
 │   │       ├── conhecimento_form.html
 │   │       ├── conhecimento_list.html
 │   │       ├── dashboard.html
@@ -114,6 +116,7 @@ O caminho de execução hoje é este:
 - [bot-app/lembretes.py](/home/wadson/stack/bot-app/lembretes.py) varre agendamentos próximos e dispara o lembrete automático via template.
 - [bot-app/ai/](/home/wadson/stack/bot-app/ai/) contém a camada de interpretação de linguagem natural (NLU) usada como fallback pela máquina de estados — ver seção "Camada de IA (NLU)".
 - [bot-app/conhecimento.py](/home/wadson/stack/bot-app/conhecimento.py) é o CRUD e a busca da base de conhecimento por empresa — ver seção "Base de conhecimento".
+- [bot-app/configuracoes.py](/home/wadson/stack/bot-app/configuracoes.py) é a fonte única de configuração operacional (Meta, IA, lembretes, ativação do bot) — ver seção "Configurações pelo painel".
 - [bot-app/metricas.py](/home/wadson/stack/bot-app/metricas.py) concentra as consultas agregadas do dashboard, dos insights e da lista de clientes inativos — mantém `admin.py` como camada de rota, sem regra de negócio embutida.
 - [bot-app/texto_utils.py](/home/wadson/stack/bot-app/texto_utils.py) normaliza texto (acentos, caixa, espaços) — usado por `conversa.py` e `conhecimento.py`.
 - [bot-app/database.py](/home/wadson/stack/bot-app/database.py) e [bot-app/redis_client.py](/home/wadson/stack/bot-app/redis_client.py) centralizam conexões.
@@ -131,6 +134,7 @@ O banco trabalha com estas tabelas principais:
 - `solicitacoes_atendimento`: pedidos de atendimento humano.
 - `empresa_conhecimento`: perguntas e respostas cadastradas por empresa (base de conhecimento).
 - `conversas_iniciadas`: log mínimo (empresa, telefone, data) de quando uma conversa nova começa — existe só para alimentar as métricas de "conversas iniciadas" e "taxa de conversão" do dashboard, que não são calculáveis a partir de nenhuma outra tabela (o estado da conversa em si vive só no Redis, com TTL de 30 minutos).
+- `configuracao_sistema`: linha única (`id=1`) com as configurações operacionais editáveis em `/admin/configuracoes` — ver seção "Configurações pelo painel".
 
 O isolamento é multi-tenant por coluna `empresa_id`, então uma mesma base atende várias empresas sem misturar os dados.
 
@@ -164,14 +168,7 @@ Cadastre no Meta Business Manager:
 - Corpo: `Olá {{1}}! Passando para lembrar do seu horário de {{2}} marcado para {{3}} na {{4}}. Para cancelar, é só responder esta mensagem.`
 - Exemplos para submissão: `{{1}}=Maria`, `{{2}}=Corte de cabelo`, `{{3}}=15/08/2026 às 14:00`, `{{4}}=Clínica Sorriso Feliz`
 
-Variáveis de ambiente novas (todas com valor padrão, ver [bot-app/.env.example](/home/wadson/stack/bot-app/.env.example)):
-
-| Variável | Padrão | Papel |
-|---|---|---|
-| `META_TEMPLATE_LEMBRETE_NOME` | `lembrete_agendamento` | Nome do template aprovado na Meta |
-| `META_TEMPLATE_LEMBRETE_IDIOMA` | `pt_BR` | Idioma do template |
-| `LEMBRETE_ANTECEDENCIA_HORAS` | `24` | Quantas horas antes do horário o lembrete é elegível para envio |
-| `LEMBRETE_INTERVALO_MINUTOS` | `15` | De quanto em quanto tempo o ciclo varre os agendamentos pendentes |
+Nome/idioma do template, antecedência e intervalo de verificação são editáveis em `/admin/configuracoes` (ver "Configurações pelo painel") — o `.env.example` só documenta o valor inicial.
 
 ## Base de conhecimento
 
@@ -231,22 +228,31 @@ Módulos em [bot-app/ai/](/home/wadson/stack/bot-app/ai/):
 - `cache.py` — cache de interpretação no Redis (reaproveita `redis_client.redis_cliente`, mesma conexão do estado da conversa), isolado por `empresa_id`.
 - `service.py` — `AIService`, a única porta de entrada usada pelo resto do sistema: aplica cache, timeout (`asyncio.wait_for`, além do timeout do próprio client) e nunca deixa uma exceção do provedor vazar — qualquer falha vira um resultado `desconhecido` e a máquina de estados segue com o fallback padrão.
 
-**Desligada por padrão.** `AI_ENABLED=false` é o padrão — sem configurar nada, o comportamento do bot é idêntico ao de antes desta camada existir. Só liga de fato com `AI_ENABLED=true` **e** `AI_API_KEY` preenchido.
-
-| Variável | Padrão | Papel |
-|---|---|---|
-| `AI_ENABLED` | `false` | Liga/desliga a camada de IA inteira |
-| `AI_PROVIDER` | `openai` | Qual provider usar (hoje só `openai` está implementado) |
-| `AI_API_KEY` | vazio | Chave da API do provider |
-| `AI_MODEL` | `gpt-4o-mini` | Modelo usado nas chamadas |
-| `AI_TIMEOUT_SEGUNDOS` | `6.0` | Timeout máximo por chamada — estourou, cai no fallback |
-| `AI_CACHE_TTL_SEGUNDOS` | `600` | Quanto tempo uma interpretação fica em cache por empresa |
+**Desligada por padrão.** Sem configurar nada, o comportamento do bot é idêntico ao de antes desta camada existir. Habilitada, provedor, chave de API, modelo, timeout e TTL do cache são todos editáveis em `/admin/configuracoes` (ver "Configurações pelo painel") — não exige reiniciar o processo.
 
 ### Como adicionar um novo provider (Claude, Gemini, Ollama...)
 
 1. Implemente uma classe em `ai/provider.py` que herda de `AIProvider` e implementa só `async def completar(self, mensagens: list[dict]) -> str`, recebendo mensagens no formato `[{"role": "system"|"user", "content": "..."}]` e devolvendo o texto bruto da resposta. Capture as exceções específicas do SDK do provider e relance como `AIProviderError` — o resto do sistema não deve conhecer exceções específicas de nenhum provider.
 2. Registre o novo valor de `AI_PROVIDER` em `criar_ai_service()` (`ai/service.py`), instanciando a nova classe.
 3. Nenhum outro arquivo precisa mudar — `AIService`, o cache, o prompt e a integração em `conversa.py` são todos agnósticos de provider.
+
+## Configurações pelo painel
+
+`/admin/configuracoes` reúne, num formulário único (é configuração global do sistema, não por empresa), tudo que antes só dava pra trocar editando o `.env` e reiniciando o processo:
+
+- Meta Graph API: token, Phone Number ID, Business ID.
+- Palavra(s) de ativação do bot.
+- Lembretes automáticos: nome/idioma do template, antecedência em horas, intervalo de verificação em minutos.
+- Camada de IA: habilitada, provedor, chave de API, modelo, timeout, TTL do cache.
+
+**Fica de fora, de propósito** — não é esquecimento:
+- `DATABASE_URL`/`REDIS_URL`/`EVOLUTION_*`: bootstrap — o processo precisa delas antes mesmo de conseguir ler qualquer coisa do banco.
+- `ADMIN_USERNAME`/`ADMIN_PASSWORD`/`SESSION_SECRET_KEY`: identidade/sessão do próprio painel, assunto diferente (trocar senha merece hashing e invalidação de sessão próprios).
+- `SEED_EMPRESA_*`: só usados pelo script `seed.py`, sem relevância em runtime.
+
+**Como funciona sem restart:** tudo isso fica numa tabela `configuracao_sistema` (linha única). Na primeira vez que o sistema lê essa tabela, ela é criada copiando os valores atuais do `.env` — depois disso, o banco é a fonte viva e o `.env` vira só o valor inicial. Os módulos que antes liam `settings.*` uma única vez no import (`meta_client.py`, `ai/service.py`, `lembretes.py`, o loop de lembretes em `main.py`) passaram a consultar [bot-app/configuracoes.py](/home/wadson/stack/bot-app/configuracoes.py) a cada chamada/ciclo — uma mudança salva no painel vale na próxima mensagem ou no próximo ciclo do lembrete, sem precisar reiniciar o bot. Construir o client da IA por mensagem é barato (não faz chamada de rede no `__init__`), e uma consulta por chave primária no banco tem custo desprezível no volume de mensagens de um bot de pequena empresa — por isso não há cache/TTL nessa leitura.
+
+**Segredos nunca voltam pro navegador**: os campos de token/chave de API usam `input type="password"` sempre vazio ao carregar a página (só um texto indicando se já há valor salvo); deixar em branco no submit mantém o valor atual, preencher substitui.
 
 ## Dashboard, insights e clientes inativos
 
@@ -293,6 +299,7 @@ O que já existe e funciona hoje:
 - Wizard público de onboarding para novos clientes, com validação e tela de sucesso.
 - Lembrete automático de agendamento via WhatsApp (template Meta), com controle de envio único por agendamento e reset automático em reagendamento.
 - Camada de IA (NLU) opcional como fallback da máquina de estados, com provider OpenAI, cache Redis por empresa, timeout e fallback seguro — desligada por padrão.
+- Configurações operacionais (Meta, ativação do bot, lembretes, IA) editáveis em `/admin/configuracoes`, valendo sem precisar reiniciar o processo.
 
 O que ainda está faltando para virar produto de fato:
 
@@ -300,10 +307,11 @@ O que ainda está faltando para virar produto de fato:
 - Cadastro manual de cliente final direto pelo painel (hoje o cliente só é criado a partir de uma conversa real no WhatsApp).
 - Fluxo de cobrança.
 - Observabilidade e auditoria mais completas.
-- Ampliar a cobertura de testes automatizados (hoje cobre onboarding, conversa, solicitações de atendimento, o painel de clientes, os lembretes automáticos, a camada de IA, a base de conhecimento e as métricas/insights).
+- Ampliar a cobertura de testes automatizados (hoje cobre onboarding, conversa, solicitações de atendimento, o painel de clientes, os lembretes automáticos, a camada de IA, a base de conhecimento, as métricas/insights e as configurações do painel).
 - IA cobrindo mais pontos de fallback (hoje só o catch-all final) e mais providers além da OpenAI.
 - Base de conhecimento usando matching por palavra-chave/prefixo (v1); pode evoluir para busca semântica se o volume de perguntas justificar.
 - Clientes inativos ainda não vira campanha de verdade — hoje é só listagem.
+- Configurações sensíveis (token da Meta, chave de IA) ficam em texto puro no banco, sem criptografia em repouso — consistente com o resto do projeto hoje (ex.: senha do admin também não é hasheada), mas é um ponto a evoluir junto.
 
 ## Limitações e bugs conhecidos
 
@@ -348,12 +356,11 @@ Algumas decisões já foram tomadas corretamente:
 
 Mas ainda existem pontos a melhorar:
 
-- Tirar segredos do código-fonte.
-- Adicionar autenticação ao futuro painel administrativo.
-- Validar e renovar tokens da Meta com processo controlado.
+- Criptografia em repouso para segredos guardados no banco (token da Meta, chave de IA) — hoje ficam em texto puro, como o resto das credenciais do projeto.
+- Validar e renovar tokens da Meta com processo controlado — hoje dá pra trocar o token pelo painel sem reiniciar o processo, mas não há verificação automática de validade/expiração.
 - Rever logs, alertas e política de backup.
 
-O primeiro item já foi parcialmente atendido: as credenciais da aplicação saíram do código e foram centralizadas em ambiente, mas o processo de rotação e gestão segura de segredos ainda precisa de formalização.
+O painel administrativo já exige login (usuário/senha via variável de ambiente). Trocar o token da Meta ou a chave de IA não exige mais editar `.env` e reiniciar o processo — é feito em `/admin/configuracoes` (ver seção "Configurações pelo painel").
 
 ## Melhorias futuras
 

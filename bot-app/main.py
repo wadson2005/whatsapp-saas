@@ -14,6 +14,7 @@ from starlette.templating import Jinja2Templates
 
 from admin import admin_app, parse_optional_float
 from config import settings
+from configuracoes import obter_configuracao
 from conversa import processar_mensagem
 from database import SessionLocal
 from lembretes import enviar_lembretes_pendentes
@@ -373,7 +374,9 @@ _lembretes_task: asyncio.Task | None = None
 async def _loop_lembretes():
     while True:
         db = SessionLocal()
+        intervalo_minutos = settings.lembrete_intervalo_minutos
         try:
+            intervalo_minutos = obter_configuracao(db).lembrete_intervalo_minutos
             enviados = await enviar_lembretes_pendentes(db)
             if enviados:
                 logger.info("Lembretes automáticos enviados: %s", enviados)
@@ -381,7 +384,7 @@ async def _loop_lembretes():
             logger.exception("Falha no ciclo de lembretes automáticos")
         finally:
             db.close()
-        await asyncio.sleep(settings.lembrete_intervalo_minutos * 60)
+        await asyncio.sleep(intervalo_minutos * 60)
 
 
 @app.on_event("startup")

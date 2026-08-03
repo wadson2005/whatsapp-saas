@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import joinedload
 
 from agenda import formatar_data_hora
-from config import settings
+from configuracoes import obter_configuracao
 from meta_client import enviar_template
 from models import Agendamento
 
@@ -15,9 +15,10 @@ logger = logging.getLogger(__name__)
 STATUS_ELEGIVEIS_PARA_LEMBRETE = ("agendado", "confirmado")
 
 
-def buscar_agendamentos_para_lembrete(db, agora: datetime | None = None) -> list[Agendamento]:
+def buscar_agendamentos_para_lembrete(db, agora: datetime | None = None, config=None) -> list[Agendamento]:
     agora = agora or datetime.utcnow()
-    limite = agora + timedelta(hours=settings.lembrete_antecedencia_horas)
+    config = config or obter_configuracao(db)
+    limite = agora + timedelta(hours=config.lembrete_antecedencia_horas)
 
     return (
         db.query(Agendamento)
@@ -36,7 +37,8 @@ def buscar_agendamentos_para_lembrete(db, agora: datetime | None = None) -> list
     )
 
 
-async def enviar_lembrete(db, agendamento: Agendamento) -> bool:
+async def enviar_lembrete(db, agendamento: Agendamento, config=None) -> bool:
+    config = config or obter_configuracao(db)
     cliente = agendamento.cliente_final
     servico = agendamento.servico
     empresa = agendamento.empresa
@@ -51,8 +53,8 @@ async def enviar_lembrete(db, agendamento: Agendamento) -> bool:
     try:
         resultado = await enviar_template(
             numero=cliente.telefone,
-            nome_template=settings.meta_template_lembrete_nome,
-            idioma=settings.meta_template_lembrete_idioma,
+            nome_template=config.meta_template_lembrete_nome,
+            idioma=config.meta_template_lembrete_idioma,
             parametros_corpo=parametros_corpo,
         )
     except Exception:
@@ -73,9 +75,10 @@ async def enviar_lembrete(db, agendamento: Agendamento) -> bool:
 
 
 async def enviar_lembretes_pendentes(db) -> int:
-    agendamentos = buscar_agendamentos_para_lembrete(db)
+    config = obter_configuracao(db)
+    agendamentos = buscar_agendamentos_para_lembrete(db, config=config)
     enviados = 0
     for agendamento in agendamentos:
-        if await enviar_lembrete(db, agendamento):
+        if await enviar_lembrete(db, agendamento, config=config):
             enviados += 1
     return enviados

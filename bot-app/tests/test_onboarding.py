@@ -26,7 +26,7 @@ def carregar_app(monkeypatch, tmp_path: Path):
     for chave, valor in BOOTSTRAP_ENV.items():
         monkeypatch.setenv(chave, valor)
 
-    for modulo in ["main", "admin", "config", "database", "models", "schema", "conversa", "redis_client", "agenda", "meta_client", "atendimento_humano", "lembretes", "ai", "ai.provider", "ai.service", "ai.prompts", "ai.models", "ai.cache", "texto_utils", "conhecimento", "metricas"]:
+    for modulo in ["main", "admin", "config", "database", "models", "schema", "conversa", "redis_client", "agenda", "meta_client", "atendimento_humano", "lembretes", "ai", "ai.provider", "ai.service", "ai.prompts", "ai.models", "ai.cache", "texto_utils", "conhecimento", "metricas", "configuracoes"]:
         sys.modules.pop(modulo, None)
 
     main = importlib.import_module("main")

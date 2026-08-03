@@ -13,6 +13,7 @@ from starlette.templating import Jinja2Templates
 from atendimento_humano import STATUS_EM_ATENDIMENTO, STATUS_FINALIZADO, STATUS_PENDENTE, atualizar_status_solicitacao_atendimento
 from config import settings
 from conhecimento import atualizar_conhecimento, criar_conhecimento, excluir_conhecimento, listar_conhecimento
+from configuracoes import atualizar_configuracao, obter_configuracao
 from database import SessionLocal
 from metricas import calcular_metricas, gerar_insights, listar_clientes_inativos
 from models import Agendamento, ClienteFinal, Empresa, EmpresaConhecimento, Servico, SolicitacaoAtendimento
@@ -1269,3 +1270,67 @@ async def clientes_inativos_page(request: Request):
             selected_dias=dias,
         ),
     )
+
+
+@admin_app.get("/configuracoes", response_class=HTMLResponse)
+async def configuracoes_page(request: Request):
+    redirect_response = admin_required(request)
+    if redirect_response:
+        return redirect_response
+
+    db = SessionLocal()
+    try:
+        config = obter_configuracao(db)
+    finally:
+        db.close()
+
+    return templates.TemplateResponse(
+        request,
+        "admin/configuracoes.html",
+        page_context(
+            request,
+            title="Configurações",
+            config=config,
+            meta_token_configurado=bool(config.meta_token),
+            ai_api_key_configurada=bool(config.ai_api_key),
+        ),
+    )
+
+
+@admin_app.post("/configuracoes")
+async def configuracoes_submit(request: Request):
+    redirect_response = admin_required(request)
+    if redirect_response:
+        return redirect_response
+
+    form = await request.form()
+    db = SessionLocal()
+    try:
+        campos = {
+            "meta_phone_number_id": (form.get("meta_phone_number_id") or "").strip(),
+            "meta_business_id": parse_optional_str(form.get("meta_business_id")),
+            "bot_activation_words_raw": (form.get("bot_activation_words_raw") or "oibot").strip(),
+            "meta_template_lembrete_nome": (form.get("meta_template_lembrete_nome") or "lembrete_agendamento").strip(),
+            "meta_template_lembrete_idioma": (form.get("meta_template_lembrete_idioma") or "pt_BR").strip(),
+            "lembrete_antecedencia_horas": parse_optional_int(form.get("lembrete_antecedencia_horas")) or 24,
+            "lembrete_intervalo_minutos": parse_optional_int(form.get("lembrete_intervalo_minutos")) or 15,
+            "ai_enabled": parse_bool(form.get("ai_enabled")),
+            "ai_provider": (form.get("ai_provider") or "openai").strip(),
+            "ai_model": (form.get("ai_model") or "gpt-4o-mini").strip(),
+            "ai_timeout_segundos": parse_optional_float(form.get("ai_timeout_segundos")) or 6.0,
+            "ai_cache_ttl_segundos": parse_optional_int(form.get("ai_cache_ttl_segundos")) or 600,
+        }
+
+        meta_token_novo = (form.get("meta_token") or "").strip()
+        if meta_token_novo:
+            campos["meta_token"] = meta_token_novo
+
+        ai_api_key_novo = (form.get("ai_api_key") or "").strip()
+        if ai_api_key_novo:
+            campos["ai_api_key"] = ai_api_key_novo
+
+        atualizar_configuracao(db, **campos)
+    finally:
+        db.close()
+
+    return RedirectResponse(url="/admin/configuracoes?message=Configurações atualizadas com sucesso.", status_code=303)

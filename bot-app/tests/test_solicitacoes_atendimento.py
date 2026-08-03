@@ -68,6 +68,7 @@ def carregar_app(monkeypatch, tmp_path: Path):
         "texto_utils",
         "conhecimento",
         "metricas",
+        "configuracoes",
     ]:
         sys.modules.pop(modulo, None)
 

@@ -4,6 +4,7 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
@@ -47,7 +48,7 @@ def carregar_app(monkeypatch, tmp_path: Path):
     for chave, valor in BOOTSTRAP_ENV.items():
         monkeypatch.setenv(chave, valor)
 
-    for modulo in ["main", "admin", "config", "database", "models", "schema", "conversa", "redis_client", "agenda", "meta_client", "atendimento_humano", "lembretes", "ai", "ai.provider", "ai.service", "ai.prompts", "ai.models", "ai.cache", "texto_utils", "conhecimento", "metricas"]:
+    for modulo in ["main", "admin", "config", "database", "models", "schema", "conversa", "redis_client", "agenda", "meta_client", "atendimento_humano", "lembretes", "ai", "ai.provider", "ai.service", "ai.prompts", "ai.models", "ai.cache", "texto_utils", "conhecimento", "metricas", "configuracoes"]:
         sys.modules.pop(modulo, None)
 
     main = importlib.import_module("main")
@@ -242,14 +243,17 @@ def test_ia_interpreta_cancelamento_quando_fora_das_palavras_chave(monkeypatch, 
         json.dumps({"passo": "agendamento_ativo", "contexto": {"agendamento_id": agendamento.id, "servico_id": agendamento.servico_id}}),
     )
 
-    conversa.ai_service.interpretar = AsyncMock(
-        return_value=ai_models.InterpretacaoIA(
-            intent=ai_models.Intent.CANCELAR,
-            entidades=ai_models.Entidades(),
-            confianca=0.9,
-            origem="ia",
+    fake_ia = SimpleNamespace(
+        interpretar=AsyncMock(
+            return_value=ai_models.InterpretacaoIA(
+                intent=ai_models.Intent.CANCELAR,
+                entidades=ai_models.Entidades(),
+                confianca=0.9,
+                origem="ia",
+            )
         )
     )
+    conversa.criar_ai_service = lambda config: fake_ia
 
     with TestClient(main.app) as client:
         response = client.post(
@@ -258,7 +262,7 @@ def test_ia_interpreta_cancelamento_quando_fora_das_palavras_chave(monkeypatch, 
         )
 
     assert response.status_code == 200
-    conversa.ai_service.interpretar.assert_awaited_once()
+    fake_ia.interpretar.assert_awaited_once()
     assert conversa.enviar_botoes.await_count == 1
     botoes = conversa.enviar_botoes.await_args.kwargs["botoes"]
     assert any(botao["id"] == "cancelamento:confirmar" for botao in botoes)
@@ -287,14 +291,17 @@ def test_ia_desconhecida_mantem_fallback_padrao(monkeypatch, tmp_path):
         json.dumps({"passo": "agendamento_ativo", "contexto": {"agendamento_id": agendamento.id, "servico_id": agendamento.servico_id}}),
     )
 
-    conversa.ai_service.interpretar = AsyncMock(
-        return_value=ai_models.InterpretacaoIA(
-            intent=ai_models.Intent.DESCONHECIDO,
-            entidades=ai_models.Entidades(),
-            confianca=0.0,
-            origem="fallback",
+    fake_ia = SimpleNamespace(
+        interpretar=AsyncMock(
+            return_value=ai_models.InterpretacaoIA(
+                intent=ai_models.Intent.DESCONHECIDO,
+                entidades=ai_models.Entidades(),
+                confianca=0.0,
+                origem="fallback",
+            )
         )
     )
+    conversa.criar_ai_service = lambda config: fake_ia
 
     with TestClient(main.app) as client:
         response = client.post(
@@ -303,10 +310,77 @@ def test_ia_desconhecida_mantem_fallback_padrao(monkeypatch, tmp_path):
         )
 
     assert response.status_code == 200
-    conversa.ai_service.interpretar.assert_awaited_once()
+    fake_ia.interpretar.assert_awaited_once()
     assert conversa.enviar_botoes.await_count == 1
     texto_resposta = conversa.enviar_botoes.await_args.kwargs["texto"].lower()
     assert "não entendi" in texto_resposta
 
     estado = conversa.obter_estado(empresa.id, "5586999999995")
     assert estado["passo"] == "agendamento_ativo"
+
+
+def test_configuracao_pelo_painel_ativa_ia_sem_reiniciar_processo(monkeypatch, tmp_path):
+    """Prova de ponta a ponta: ativar a IA em /admin/configuracoes vale na mensagem
+    seguinte, dentro do mesmo processo — sem mockar conversa.criar_ai_service, para
+    exercitar de verdade a cadeia painel -> banco -> criar_ai_service -> OpenAIProvider."""
+    main, conversa, models = carregar_app(monkeypatch, tmp_path)
+    conversa.redis_cliente = FakeRedis()
+    conversa.enviar_botoes = AsyncMock()
+    conversa.enviar_lista = AsyncMock()
+
+    ai_provider_module = importlib.import_module("ai.provider")
+    ai_cache_module = importlib.import_module("ai.cache")
+    ai_cache_module.redis_cliente = FakeRedis()  # isola do Redis real — senão um cache de execução anterior mascara o teste
+    chamadas = []
+
+    class FakeOpenAIProvider:
+        def __init__(self, api_key, model, timeout_segundos):
+            self.api_key = api_key
+
+        async def completar(self, mensagens):
+            chamadas.append(mensagens)
+            return json.dumps({"intent": "falar_com_atendente", "entidades": {}, "confianca": 0.9})
+
+    monkeypatch.setattr(ai_provider_module, "OpenAIProvider", FakeOpenAIProvider)
+
+    empresa, _, agendamento = _criar_empresa_com_agendamento(main, models, "5586999999994", "clinica-sorriso-feliz")
+    conversa.redis_cliente.set(
+        f"conversa:{empresa.id}:5586999999994",
+        json.dumps({"passo": "agendamento_ativo", "contexto": {"agendamento_id": agendamento.id, "servico_id": agendamento.servico_id}}),
+    )
+
+    with TestClient(main.app) as client:
+        login = client.post(
+            "/admin/login",
+            data={"username": "admin", "password": "senha-super-segura-123"},
+            follow_redirects=False,
+        )
+        assert login.status_code == 303
+
+        resposta_config = client.post(
+            "/admin/configuracoes",
+            data={
+                "meta_phone_number_id": "x",
+                "bot_activation_words_raw": "oibot",
+                "meta_template_lembrete_nome": "lembrete_agendamento",
+                "meta_template_lembrete_idioma": "pt_BR",
+                "lembrete_antecedencia_horas": "24",
+                "lembrete_intervalo_minutos": "15",
+                "ai_enabled": "on",
+                "ai_provider": "openai",
+                "ai_model": "gpt-4o-mini",
+                "ai_timeout_segundos": "6",
+                "ai_cache_ttl_segundos": "600",
+                "ai_api_key": "chave-de-teste",
+            },
+            follow_redirects=False,
+        )
+        assert resposta_config.status_code == 303
+
+        response = client.post(
+            "/webhook",
+            json=_payload_texto("clinica-sorriso-feliz", "5586999999994", "queria falar com alguém sobre um caso específico"),
+        )
+
+    assert response.status_code == 200
+    assert len(chamadas) == 1, "a IA deveria ter sido chamada de verdade, refletindo a configuração salva no painel"

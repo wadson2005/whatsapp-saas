@@ -77,3 +77,9 @@ Este documento lista só o que já está implementado e funcionando, do mais bá
 - Dashboard com filtro de período (data inicial/final) e 10 indicadores: conversas iniciadas, agendamentos realizados, cancelamentos, solicitações de atendimento, taxa de conversão, serviço mais solicitado, horário mais solicitado, dia da semana mais movimentado, clientes novos e clientes recorrentes — todos filtráveis por empresa.
 - Página de Insights com frases geradas automaticamente a partir dos dados reais (ex.: "O serviço X representa 42% dos agendamentos", "18 clientes não retornam há mais de 90 dias") — nunca um número inventado; se não há dado suficiente, o insight simplesmente não aparece.
 - Listagem de clientes inativos com corte configurável (30/60/90/180 dias), mostrando nome, telefone, último atendimento e quantidade de agendamentos — pensada para virar base de campanhas de retorno no futuro.
+
+## 12. Configurações operacionais pelo painel
+
+- Credenciais da Meta Graph API, palavra de ativação do bot, parâmetros de lembrete automático e configuração completa da camada de IA — tudo editável em `/admin/configuracoes`, sem precisar de acesso ao servidor.
+- Mudança feita no painel vale na próxima mensagem ou no próximo ciclo de lembrete, sem precisar reiniciar o bot.
+- Campos sensíveis (token da Meta, chave de IA) nunca aparecem de volta na tela — só é possível substituir, não visualizar o valor salvo.

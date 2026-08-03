@@ -3,6 +3,7 @@ import importlib
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BOOTSTRAP_ENV = {
@@ -178,12 +179,16 @@ def test_provider_none_retorna_fallback(monkeypatch):
 def test_provider_nao_suportado_desativa_ia_sem_lancar_excecao(monkeypatch):
     _, models, service = carregar_ai(monkeypatch)
 
-    monkeypatch.setenv("AI_ENABLED", "true")
-    monkeypatch.setenv("AI_API_KEY", "chave-qualquer")
-    monkeypatch.setenv("AI_PROVIDER", "provider-inexistente")
-    sys.modules.pop("config", None)
+    config = SimpleNamespace(
+        ai_enabled=True,
+        ai_api_key="chave-qualquer",
+        ai_provider="provider-inexistente",
+        ai_model="gpt-4o-mini",
+        ai_timeout_segundos=2.0,
+        ai_cache_ttl_segundos=60,
+    )
 
-    ai_service = service.criar_ai_service()
+    ai_service = service.criar_ai_service(config)
     resultado = asyncio.run(ai_service.interpretar(1, "mensagem qualquer"))
 
     assert resultado.intent == models.Intent.DESCONHECIDO

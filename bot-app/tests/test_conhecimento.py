@@ -3,6 +3,7 @@ import importlib
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
@@ -22,7 +23,7 @@ MODULOS = [
     "main", "admin", "config", "database", "models", "schema", "conversa",
     "redis_client", "agenda", "meta_client", "atendimento_humano", "lembretes",
     "ai", "ai.provider", "ai.service", "ai.prompts", "ai.models", "ai.cache",
-    "texto_utils", "conhecimento", "metricas",
+    "texto_utils", "conhecimento", "metricas", "configuracoes",
 ]
 
 
@@ -255,7 +256,8 @@ def test_conversa_usa_conhecimento_antes_da_ia(monkeypatch, tmp_path):
     conversa.redis_cliente = FakeRedis()
     conversa.enviar_botoes = AsyncMock()
     conversa.enviar_lista = AsyncMock()
-    conversa.ai_service.interpretar = AsyncMock()
+    fake_ia = SimpleNamespace(interpretar=AsyncMock())
+    conversa.criar_ai_service = lambda config: fake_ia
 
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
     db = main.SessionLocal()
@@ -276,7 +278,7 @@ def test_conversa_usa_conhecimento_antes_da_ia(monkeypatch, tmp_path):
         )
 
     assert resposta.status_code == 200
-    conversa.ai_service.interpretar.assert_not_awaited()
+    fake_ia.interpretar.assert_not_awaited()
     assert conversa.enviar_botoes.await_count == 1
     assert conversa.enviar_botoes.await_args.kwargs["texto"] == "Sim, gratuito."
 
@@ -288,14 +290,17 @@ def test_conversa_sem_match_aciona_ia_normalmente(monkeypatch, tmp_path):
     conversa.enviar_lista = AsyncMock()
 
     ai_models = importlib.import_module("ai.models")
-    conversa.ai_service.interpretar = AsyncMock(
-        return_value=ai_models.InterpretacaoIA(
-            intent=ai_models.Intent.DESCONHECIDO,
-            entidades=ai_models.Entidades(),
-            confianca=0.0,
-            origem="fallback",
+    fake_ia = SimpleNamespace(
+        interpretar=AsyncMock(
+            return_value=ai_models.InterpretacaoIA(
+                intent=ai_models.Intent.DESCONHECIDO,
+                entidades=ai_models.Entidades(),
+                confianca=0.0,
+                origem="fallback",
+            )
         )
     )
+    conversa.criar_ai_service = lambda config: fake_ia
 
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
     db = main.SessionLocal()
@@ -316,4 +321,4 @@ def test_conversa_sem_match_aciona_ia_normalmente(monkeypatch, tmp_path):
         )
 
     assert resposta.status_code == 200
-    conversa.ai_service.interpretar.assert_awaited_once()
+    fake_ia.interpretar.assert_awaited_once()

@@ -84,33 +84,37 @@ def _resultado_fallback() -> InterpretacaoIA:
     return InterpretacaoIA(intent=Intent.DESCONHECIDO, entidades=Entidades(), confianca=0.0, origem="fallback")
 
 
-def criar_ai_service() -> AIService:
-    from config import settings
+def criar_ai_service(config) -> AIService:
+    """Constrói um AIService a partir de uma configuração (ConfiguracaoSistema ou
+    qualquer objeto com os mesmos atributos — facilita testar sem banco).
 
-    if not settings.ai_enabled or not settings.ai_api_key:
-        return AIService(provider=None, timeout_segundos=settings.ai_timeout_segundos, cache_ttl_segundos=settings.ai_cache_ttl_segundos, habilitado=False)
+    Chamada por mensagem em conversa.py, não é mais um singleton fixo: assim uma
+    mudança feita em /admin/configuracoes (provider, chave, modelo, habilitado)
+    vale na próxima mensagem, sem precisar reiniciar o processo. Construir o
+    provider é barato (não faz chamada de rede no __init__), então recriar por
+    mensagem não tem custo real.
+    """
+    if not config.ai_enabled or not config.ai_api_key:
+        return AIService(provider=None, timeout_segundos=config.ai_timeout_segundos, cache_ttl_segundos=config.ai_cache_ttl_segundos, habilitado=False)
 
-    if settings.ai_provider != "openai":
+    if config.ai_provider != "openai":
         logger.error(
-            "AI_PROVIDER=%r não é suportado (apenas 'openai' está implementado); camada de IA desativada.",
-            settings.ai_provider,
+            "ai_provider=%r não é suportado (apenas 'openai' está implementado); camada de IA desativada.",
+            config.ai_provider,
         )
-        return AIService(provider=None, timeout_segundos=settings.ai_timeout_segundos, cache_ttl_segundos=settings.ai_cache_ttl_segundos, habilitado=False)
+        return AIService(provider=None, timeout_segundos=config.ai_timeout_segundos, cache_ttl_segundos=config.ai_cache_ttl_segundos, habilitado=False)
 
     from .provider import OpenAIProvider
 
     provider = OpenAIProvider(
-        api_key=settings.ai_api_key,
-        model=settings.ai_model,
-        timeout_segundos=settings.ai_timeout_segundos,
+        api_key=config.ai_api_key,
+        model=config.ai_model,
+        timeout_segundos=config.ai_timeout_segundos,
     )
 
     return AIService(
         provider=provider,
-        timeout_segundos=settings.ai_timeout_segundos,
-        cache_ttl_segundos=settings.ai_cache_ttl_segundos,
+        timeout_segundos=config.ai_timeout_segundos,
+        cache_ttl_segundos=config.ai_cache_ttl_segundos,
         habilitado=True,
     )
-
-
-ai_service = criar_ai_service()

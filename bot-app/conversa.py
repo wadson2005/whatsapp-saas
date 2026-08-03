@@ -13,10 +13,10 @@ from agenda import (
     reagendar_agendamento,
 )
 from ai.models import Intent
-from ai.service import ai_service
+from ai.service import criar_ai_service
 from atendimento_humano import registrar_solicitacao_atendimento
-from config import settings
 from conhecimento import buscar_resposta
+from configuracoes import obter_configuracao, parse_activation_words
 from meta_client import enviar_botoes, enviar_lista
 from metricas import registrar_conversa_iniciada
 from models import Agendamento, ClienteFinal, Empresa, Servico
@@ -37,7 +37,7 @@ TEXTO_BOTAO_CONFIRMAR_CANCELAMENTO = "Sim, cancelar"
 TEXTO_BOTAO_MANTER_AGENDAMENTO = "Não, manter"
 TEXTO_BOTAO_FALAR_COM_ATENDENTE = "Falar com atendente"
 
-PALAVRAS_ABERTURA = settings.bot_activation_words + ("oi", "ola", "bom dia", "boa tarde", "boa noite")
+SAUDACOES_FIXAS = ("oi", "ola", "bom dia", "boa tarde", "boa noite")
 PALAVRAS_MENU = ("menu", "voltar", "inicio", "iniciar", "comecar")
 PALAVRAS_CANCELAMENTO = ("cancelar agendamento", "desmarcar", "cancelar")
 PALAVRAS_REAGENDAMENTO = ("reagendar", "remarcar")
@@ -881,7 +881,9 @@ async def _tentar_interpretar_via_ia(db, empresa: Empresa, numero: str, texto: s
         )
         return True
 
-    interpretacao = await ai_service.interpretar(empresa.id, texto)
+    config_sistema = obter_configuracao(db)
+    servico_ia = criar_ai_service(config_sistema)
+    interpretacao = await servico_ia.interpretar(empresa.id, texto)
 
     if interpretacao.intent == Intent.CANCELAR:
         await _cancelar_agendamento_ativo(db, empresa, numero)
@@ -949,7 +951,9 @@ async def processar_mensagem(db, empresa: Empresa, numero: str, texto: str, id_i
         return
 
     if passo == "novo":
-        if _texto_corresponde(texto, PALAVRAS_ABERTURA) or id_interacao in {"ver_servicos", "menu:servicos"}:
+        config_sistema = obter_configuracao(db)
+        palavras_abertura = parse_activation_words(config_sistema.bot_activation_words_raw) + SAUDACOES_FIXAS
+        if _texto_corresponde(texto, palavras_abertura) or id_interacao in {"ver_servicos", "menu:servicos"}:
             await _mostrar_lista_servicos(db, empresa, numero)
         else:
             await _mostrar_menu_principal(db, empresa, numero, contexto)

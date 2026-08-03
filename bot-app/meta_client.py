@@ -1,10 +1,13 @@
 import httpx
 
-from config import settings
+from configuracoes import obter_configuracao_isolada
 
-META_TOKEN = settings.meta_token
-META_PHONE_NUMBER_ID = settings.meta_phone_number_id
-META_API_URL = f"https://graph.facebook.com/v21.0/{META_PHONE_NUMBER_ID}/messages"
+
+def _api_url_e_headers() -> tuple[str, dict[str, str]]:
+    config = obter_configuracao_isolada()
+    url = f"https://graph.facebook.com/v21.0/{config.meta_phone_number_id}/messages"
+    headers = {"Authorization": f"Bearer {config.meta_token}"}
+    return url, headers
 
 
 async def enviar_botoes(numero: str, texto: str, botoes: list[dict], rodape: str | None = None):
@@ -31,12 +34,9 @@ async def enviar_botoes(numero: str, texto: str, botoes: list[dict], rodape: str
     if rodape:
         payload["interactive"]["footer"] = {"text": rodape}
 
+    url, headers = _api_url_e_headers()
     async with httpx.AsyncClient() as client:
-        resposta = await client.post(
-            META_API_URL,
-            headers={"Authorization": f"Bearer {META_TOKEN}"},
-            json=payload,
-        )
+        resposta = await client.post(url, headers=headers, json=payload)
         resultado = resposta.json()
         print(f"[DEBUG META] enviar_botoes -> status {resposta.status_code}: {resultado}")
         return resultado
@@ -89,12 +89,9 @@ async def enviar_lista(numero: str, texto: str, titulo_botao: str, secoes: list[
     if rodape:
         payload["interactive"]["footer"] = {"text": rodape}
 
+    url, headers = _api_url_e_headers()
     async with httpx.AsyncClient() as client:
-        resposta = await client.post(
-            META_API_URL,
-            headers={"Authorization": f"Bearer {META_TOKEN}"},
-            json=payload,
-        )
+        resposta = await client.post(url, headers=headers, json=payload)
         resultado = resposta.json()
         print(f"[DEBUG META] enviar_botoes -> status {resposta.status_code}: {resultado}")
         return resultado
@@ -123,12 +120,9 @@ async def enviar_template(numero: str, nome_template: str, idioma: str, parametr
         },
     }
 
+    url, headers = _api_url_e_headers()
     async with httpx.AsyncClient() as client:
-        resposta = await client.post(
-            META_API_URL,
-            headers={"Authorization": f"Bearer {META_TOKEN}"},
-            json=payload,
-        )
+        resposta = await client.post(url, headers=headers, json=payload)
         resultado = resposta.json()
         print(f"[DEBUG META] enviar_template -> status {resposta.status_code}: {resultado}")
         return resultado
