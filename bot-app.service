@@ -4,8 +4,8 @@ After=docker.service network.target
 Requires=docker.service
 
 [Service]
-User=wadson
-WorkingDirectory=/home/wadson/stack/bot-app
+User=deploy
+WorkingDirectory=/opt/whatsapp-saas/bot-app
 ExecStart=/usr/bin/docker compose up --build bot-app
 ExecStop=/usr/bin/docker compose down
 Restart=always

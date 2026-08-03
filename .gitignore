@@ -7,7 +7,29 @@ venv/
 __pycache__/
 **/__pycache__/
 *.pyc
+*.pyo
+.pytest_cache/
+**/.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Bancos locais
+*.db
+*.sqlite
+*.sqlite3
 
 # Arquivos temporários gerados
 qrcode.png
 **/qrcode.png
+*.bak
+*.log
+
+# Editores e SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Configuração local do Claude Code (não faz parte do produto)
+.claude/
