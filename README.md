@@ -211,6 +211,10 @@ O bot identifica a empresa pela `instance`, abre (ou recupera) o estado da conve
 
 Veja [CONTRIBUTING.md](CONTRIBUTING.md) para o fluxo de contribuição, padrões de código e como rodar a suíte de testes.
 
+## Sobre o desenvolvimento deste projeto
+
+Este projeto foi desenvolvido com apoio de ferramentas de IA (Claude) como assistente de codificação. A IA foi usada para acelerar a escrita de código e sugerir implementações; cada sugestão foi pesquisada e validada por mim antes de ser aceita, da mesma forma como eu usaria documentação oficial ou Stack Overflow — como parte do processo de aprendizado, não como substituto do entendimento técnico. Entendo a arquitetura, as decisões de design e o funcionamento do código deste repositório, e estou apto a explicá-lo e estendê-lo.
+
 ## Licença
 
 Distribuído sob a licença MIT. Veja [LICENSE](LICENSE) para o texto completo.
