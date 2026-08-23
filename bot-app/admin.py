@@ -15,7 +15,14 @@ from starlette.templating import Jinja2Templates
 from core.config import settings
 from core.database import get_db
 from core.models import Agendamento, ClienteFinal, Empresa, EmpresaConhecimento, Servico, SolicitacaoAtendimento, UsuarioPainel
-from integrations.evolution_client import EvolutionAPIError, estado_conexao, gerar_qrcode, qrcode_para_json
+from integrations.evolution_client import (
+    EvolutionAPIError,
+    criar_instancia,
+    estado_conexao,
+    excluir_instancia,
+    gerar_qrcode,
+    qrcode_para_json,
+)
 from services.atendimento_humano import STATUS_EM_ATENDIMENTO, STATUS_FINALIZADO, STATUS_PENDENTE, atualizar_status_solicitacao_atendimento
 from services.conhecimento import atualizar_conhecimento, criar_conhecimento, excluir_conhecimento, listar_conhecimento
 from services.configuracoes import atualizar_configuracao, obter_configuracao
@@ -32,6 +39,7 @@ from services.usuarios import (
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 admin_app = FastAPI()
+SLUG_REGEX = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 admin_app.add_middleware(SessionMiddleware, secret_key=settings.session_secret_key, same_site="lax", https_only=False)
 
 
@@ -197,7 +205,6 @@ def form_namespace(form, **overrides):
         "endereco": (form.get("endereco") or "").strip(),
         "descricao": (form.get("descricao") or "").strip(),
         "logo_url": (form.get("logo_url") or "").strip(),
-        "evolution_instance_name": (form.get("evolution_instance_name") or "").strip(),
         "horario_abertura": (form.get("horario_abertura") or "08:00").strip(),
         "horario_fechamento": (form.get("horario_fechamento") or "18:00").strip(),
         "horario_almoco_inicio": (form.get("horario_almoco_inicio") or "").strip(),
@@ -293,7 +300,6 @@ def _aplicar_dados_empresa(empresa: Empresa, dados: SimpleNamespace):
     empresa.endereco = dados.endereco
     empresa.descricao = dados.descricao
     empresa.logo_url = dados.logo_url
-    empresa.evolution_instance_name = dados.evolution_instance_name
     empresa.horario_abertura = dados.horario_abertura
     empresa.horario_fechamento = dados.horario_fechamento
     empresa.horario_almoco_inicio = dados.horario_almoco_inicio
@@ -526,28 +532,72 @@ async def empresa_new_page(request: Request, _: None = Depends(require_superadmi
 @admin_app.post("/empresas/nova")
 async def empresa_new_submit(request: Request, db: Session = Depends(get_db), _: None = Depends(require_superadmin)):
     form = await request.form()
+    dados = form_namespace(form)
+
+    erro_validacao = None
+    if not dados.slug or not SLUG_REGEX.fullmatch(dados.slug):
+        erro_validacao = "Use um slug com apenas letras minúsculas, números e hífens."
+    elif db.query(Empresa.id).filter(Empresa.slug == dados.slug).first():
+        erro_validacao = "Já existe uma empresa com esse slug."
+    elif not _normalizar_telefone(dados.telefone_whatsapp):
+        erro_validacao = "Informe o telefone WhatsApp para conectar a empresa."
+
+    if erro_validacao:
+        return templates.TemplateResponse(
+            request,
+            "admin/empresa_form.html",
+            page_context(request, title="Nova empresa", empresa=dados, action_url="/admin/empresas/nova", error=erro_validacao),
+            status_code=400,
+        )
+
+    nome_instancia = dados.slug
+    telefone_normalizado = _normalizar_telefone(dados.telefone_whatsapp)
+    webhook_url = f"{settings.public_base_url}/webhook"
+
     try:
-        dados = form_namespace(form)
-        empresa = Empresa()
-        _aplicar_dados_empresa(empresa, dados)
-        db.add(empresa)
-        db.commit()
-    except IntegrityError:
-        db.rollback()
+        await criar_instancia(nome_instancia, telefone_normalizado, webhook_url)
+    except EvolutionAPIError:
         return templates.TemplateResponse(
             request,
             "admin/empresa_form.html",
             page_context(
                 request,
                 title="Nova empresa",
-                empresa=form_namespace(form),
+                empresa=dados,
+                action_url="/admin/empresas/nova",
+                error="Não foi possível conectar ao WhatsApp agora. Verifique o número informado e tente novamente em instantes.",
+            ),
+            status_code=502,
+        )
+
+    try:
+        empresa = Empresa()
+        _aplicar_dados_empresa(empresa, dados)
+        empresa.telefone_whatsapp = telefone_normalizado
+        empresa.evolution_instance_name = nome_instancia
+        db.add(empresa)
+        db.commit()
+        db.refresh(empresa)
+    except IntegrityError:
+        db.rollback()
+        await excluir_instancia(nome_instancia)
+        return templates.TemplateResponse(
+            request,
+            "admin/empresa_form.html",
+            page_context(
+                request,
+                title="Nova empresa",
+                empresa=dados,
                 action_url="/admin/empresas/nova",
                 error="Já existe uma empresa com esse slug.",
             ),
             status_code=400,
         )
 
-    return RedirectResponse(url="/admin/empresas?message=Empresa criada com sucesso.", status_code=303)
+    return RedirectResponse(
+        url=f"/admin/empresas/{empresa.id}/conectar?message=Empresa criada com sucesso. Escaneie o QR code para conectar o WhatsApp.",
+        status_code=303,
+    )
 
 
 @admin_app.get("/empresas/{empresa_id}/editar", response_class=HTMLResponse)
