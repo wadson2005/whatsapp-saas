@@ -50,11 +50,6 @@
       <input type="text" name="telefone_whatsapp" class="form-control" required placeholder="5586999999999" value="{{ draft.get('telefone_whatsapp', '') }}" />
       {% if errors.get('telefone_whatsapp') %}<div class="text-danger small mt-1">{{ errors.get('telefone_whatsapp') }}</div>{% endif %}
     </div>
-    <div class="col-12">
-      <label class="form-label">Instância do WhatsApp</label>
-      <input type="text" name="evolution_instance_name" class="form-control" required placeholder="clinica-sorriso-feliz" value="{{ draft.get('evolution_instance_name', draft.get('slug', '')) }}" />
-      {% if errors.get('evolution_instance_name') %}<div class="text-danger small mt-1">{{ errors.get('evolution_instance_name') }}</div>{% endif %}
-    </div>
     <div class="col-6">
       <label class="form-label">Abertura</label>
       <input type="time" name="horario_abertura" class="form-control" value="{{ draft.get('horario_abertura', '08:00') }}" />
@@ -91,7 +86,7 @@
     </div>
     <div class="col-12 d-flex flex-column flex-sm-row gap-2 justify-content-end mt-2">
       <a href="/onboarding" class="btn btn-outline-secondary">Voltar</a>
-      <button type="submit" class="btn btn-brand btn-lg">Finalizar configuração</button>
+      <button type="submit" class="btn btn-brand btn-lg">Continuar para conectar o WhatsApp</button>
     </div>
   </form>
   {% endif %}

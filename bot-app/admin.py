@@ -15,6 +15,7 @@ from starlette.templating import Jinja2Templates
 from core.config import settings
 from core.database import get_db
 from core.models import Agendamento, ClienteFinal, Empresa, EmpresaConhecimento, Servico, SolicitacaoAtendimento, UsuarioPainel
+from integrations.evolution_client import EvolutionAPIError, estado_conexao, gerar_qrcode, qrcode_para_json
 from services.atendimento_humano import STATUS_EM_ATENDIMENTO, STATUS_FINALIZADO, STATUS_PENDENTE, atualizar_status_solicitacao_atendimento
 from services.conhecimento import atualizar_conhecimento, criar_conhecimento, excluir_conhecimento, listar_conhecimento
 from services.configuracoes import atualizar_configuracao, obter_configuracao
@@ -598,6 +599,54 @@ async def empresa_toggle(request: Request, empresa_id: int, db: Session = Depend
     db.commit()
 
     return RedirectResponse(url="/admin/empresas?message=Status da empresa atualizado.", status_code=303)
+
+
+@admin_app.get("/empresas/{empresa_id}/conectar", response_class=HTMLResponse)
+async def empresa_conectar_page(request: Request, empresa_id: int, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    empresa = load_empresa(db, request, empresa_id)
+
+    qrcode_erro = None
+    try:
+        qrcode = await gerar_qrcode(empresa.evolution_instance_name, empresa.telefone_whatsapp)
+    except EvolutionAPIError:
+        qrcode = None
+        qrcode_erro = "Não foi possível gerar o código de conexão agora. Tente novamente."
+
+    return templates.TemplateResponse(
+        request,
+        "admin/empresa_conectar.html",
+        page_context(
+            request,
+            title=f"Conectar WhatsApp - {empresa.nome}",
+            empresa=empresa,
+            qrcode=qrcode,
+            qrcode_json=qrcode_para_json(qrcode),
+            qrcode_erro=qrcode_erro,
+            status_url=f"/admin/empresas/{empresa_id}/conectar/status",
+            refresh_url=f"/admin/empresas/{empresa_id}/conectar/novo-qrcode",
+            next_url=f"/admin/empresas/{empresa_id}/editar?message=WhatsApp conectado com sucesso.",
+        ),
+    )
+
+
+@admin_app.get("/empresas/{empresa_id}/conectar/status")
+async def empresa_conectar_status(request: Request, empresa_id: int, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    empresa = load_empresa(db, request, empresa_id)
+    try:
+        state = await estado_conexao(empresa.evolution_instance_name)
+    except EvolutionAPIError:
+        state = "close"
+    return {"state": state}
+
+
+@admin_app.post("/empresas/{empresa_id}/conectar/novo-qrcode")
+async def empresa_conectar_novo_qrcode(request: Request, empresa_id: int, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    empresa = load_empresa(db, request, empresa_id)
+    try:
+        qrcode = await gerar_qrcode(empresa.evolution_instance_name, empresa.telefone_whatsapp)
+    except EvolutionAPIError:
+        raise HTTPException(status_code=502, detail="falha_ao_gerar_qrcode")
+    return qrcode
 
 
 @admin_app.get("/servicos", response_class=HTMLResponse)

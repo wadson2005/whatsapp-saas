@@ -20,6 +20,14 @@ from core.database import SessionLocal, get_db
 from core.models import Empresa, Servico
 from core.redis_client import redis_cliente
 from core.schema import ensure_schema
+from integrations.evolution_client import (
+    EvolutionAPIError,
+    criar_instancia,
+    estado_conexao,
+    excluir_instancia,
+    gerar_qrcode,
+    qrcode_para_json,
+)
 from services.configuracoes import obter_configuracao
 from services.lembretes import enviar_lembretes_pendentes
 
@@ -33,9 +41,6 @@ SLUG_REGEX = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key=settings.session_secret_key, same_site="lax", https_only=False)
 app.mount("/admin", admin_app)
-
-EVOLUTION_URL = settings.evolution_url
-EVOLUTION_API_KEY = settings.evolution_api_key
 
 
 def _empresa_cadastrada(db: Session) -> bool:
@@ -116,7 +121,6 @@ def _validar_configuracao_form(form) -> tuple[dict[str, str], dict]:
     erros: dict[str, str] = {}
     dados = {
         "telefone_whatsapp": _normalizar_telefone(form.get("telefone_whatsapp")),
-        "evolution_instance_name": (form.get("evolution_instance_name") or "").strip(),
         "horario_abertura": (form.get("horario_abertura") or "08:00").strip(),
         "horario_fechamento": (form.get("horario_fechamento") or "18:00").strip(),
         "intervalo_entre_atendimentos_minutos": (form.get("intervalo_entre_atendimentos_minutos") or "15").strip(),
@@ -127,8 +131,6 @@ def _validar_configuracao_form(form) -> tuple[dict[str, str], dict]:
 
     if len(dados["telefone_whatsapp"]) < 10:
         erros["telefone_whatsapp"] = "Informe um telefone WhatsApp válido."
-    if not dados["evolution_instance_name"]:
-        erros["evolution_instance_name"] = "Informe a instância do WhatsApp."
     if not dados["primeiro_servico_nome"]:
         erros["primeiro_servico_nome"] = "Informe o primeiro serviço."
 
@@ -256,11 +258,6 @@ async def onboarding_configurar_submit(request: Request, db: Session = Depends(g
     form = await request.form()
     erros, dados = _validar_configuracao_form(form)
 
-    if dados["evolution_instance_name"] and db.query(Empresa.id).filter(
-        Empresa.evolution_instance_name == dados["evolution_instance_name"]
-    ).first():
-        erros["evolution_instance_name"] = "Já existe uma empresa com essa instância."
-
     if erros:
         return _draft_error_response(
             request,
@@ -272,13 +269,29 @@ async def onboarding_configurar_submit(request: Request, db: Session = Depends(g
             errors=erros,
         )
 
+    nome_instancia = draft["slug"]
+    webhook_url = f"{settings.public_base_url}/webhook"
+
+    try:
+        await criar_instancia(nome_instancia, dados["telefone_whatsapp"], webhook_url)
+    except EvolutionAPIError:
+        return _draft_error_response(
+            request,
+            "onboarding/setup.html",
+            502,
+            title="Configuração do WhatsApp",
+            step=2,
+            draft={**draft, **dados},
+            errors={"geral": "Não foi possível conectar ao WhatsApp agora. Verifique o número informado e tente novamente em instantes."},
+        )
+
     try:
         empresa = Empresa(
             nome=draft["nome"],
             slug=draft["slug"],
             segmento=draft["segmento"],
             telefone_whatsapp=dados["telefone_whatsapp"],
-            evolution_instance_name=dados["evolution_instance_name"],
+            evolution_instance_name=nome_instancia,
             horario_abertura=dados["horario_abertura"],
             horario_fechamento=dados["horario_fechamento"],
             intervalo_entre_atendimentos_minutos=dados["intervalo_entre_atendimentos_minutos"],
@@ -299,6 +312,7 @@ async def onboarding_configurar_submit(request: Request, db: Session = Depends(g
         db.refresh(empresa)
     except IntegrityError:
         db.rollback()
+        await excluir_instancia(nome_instancia)
         return _draft_error_response(
             request,
             "onboarding/setup.html",
@@ -318,7 +332,67 @@ async def onboarding_configurar_submit(request: Request, db: Session = Depends(g
             "admin_url": "/admin/login",
         },
     )
-    return RedirectResponse(url="/onboarding/sucesso", status_code=303)
+    request.session["onboarding_instancia"] = nome_instancia
+    request.session["onboarding_numero"] = dados["telefone_whatsapp"]
+    return RedirectResponse(url="/onboarding/conectar", status_code=303)
+
+
+@app.get("/onboarding/conectar", response_class=HTMLResponse)
+async def onboarding_conectar(request: Request):
+    nome_instancia = request.session.get("onboarding_instancia")
+    numero = request.session.get("onboarding_numero")
+    if not nome_instancia or not numero:
+        return RedirectResponse(url="/onboarding", status_code=303)
+
+    qrcode_erro = None
+    try:
+        qrcode = await gerar_qrcode(nome_instancia, numero)
+    except EvolutionAPIError:
+        qrcode = None
+        qrcode_erro = "Não foi possível gerar o código de conexão agora. Tente novamente."
+
+    return templates.TemplateResponse(
+        request,
+        "onboarding/conectar.html",
+        _contexto_onboarding(
+            request,
+            title="Conectar WhatsApp",
+            qrcode=qrcode,
+            qrcode_json=qrcode_para_json(qrcode),
+            qrcode_erro=qrcode_erro,
+            status_url="/onboarding/conectar/status",
+            refresh_url="/onboarding/conectar/novo-qrcode",
+            next_url="/onboarding/sucesso",
+            skip_url="/onboarding/sucesso",
+        ),
+    )
+
+
+@app.get("/onboarding/conectar/status")
+async def onboarding_conectar_status(request: Request):
+    nome_instancia = request.session.get("onboarding_instancia")
+    if not nome_instancia:
+        raise HTTPException(status_code=404, detail="onboarding_nao_iniciado")
+
+    try:
+        state = await estado_conexao(nome_instancia)
+    except EvolutionAPIError:
+        state = "close"
+    return {"state": state}
+
+
+@app.post("/onboarding/conectar/novo-qrcode")
+async def onboarding_conectar_novo_qrcode(request: Request):
+    nome_instancia = request.session.get("onboarding_instancia")
+    numero = request.session.get("onboarding_numero")
+    if not nome_instancia or not numero:
+        raise HTTPException(status_code=404, detail="onboarding_nao_iniciado")
+
+    try:
+        qrcode = await gerar_qrcode(nome_instancia, numero)
+    except EvolutionAPIError:
+        raise HTTPException(status_code=502, detail="falha_ao_gerar_qrcode")
+    return qrcode
 
 
 @app.get("/onboarding/sucesso", response_class=HTMLResponse)
@@ -327,6 +401,8 @@ async def onboarding_sucesso(request: Request):
     if not resultado:
         return RedirectResponse(url="/onboarding", status_code=303)
 
+    request.session.pop("onboarding_instancia", None)
+    request.session.pop("onboarding_numero", None)
     return templates.TemplateResponse(
         request,
         "onboarding/success.html",

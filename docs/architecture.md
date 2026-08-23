@@ -94,6 +94,25 @@ Desligada por padrão — sem configurar nada, o comportamento do bot é idênti
 2. Registre o novo valor de `AI_PROVIDER` em `criar_ai_service()` (`ai/service.py`), instanciando a nova classe.
 3. Nenhum outro arquivo precisa mudar — `AIService`, o cache, o prompt e a integração em `conversa.py` são agnósticos de provider.
 
+## Conexão do WhatsApp (Evolution API)
+
+Criar uma empresa cria e conecta a instância na Evolution API automaticamente — não há mais passo manual (criar instância, escanear QR, configurar webhook) fora do sistema.
+
+`integrations/evolution_client.py` centraliza as chamadas HTTP (mesmo padrão de `meta_client.py`: um helper único, erro de rede nunca propaga cru, vira `EvolutionAPIError`):
+
+- `criar_instancia(nome, numero, webhook_url)` — `POST /instance/create`, já com o webhook (`MESSAGES_UPSERT`, `CONNECTION_UPDATE`) configurado no mesmo payload.
+- `gerar_qrcode(nome, numero)` — `GET /instance/connect/{instance}`, retorna `pairingCode` (código curto para digitar em "Conectar com número de telefone") e `code` (dado bruto do QR). A resposta de `criar_instancia` **não** traz o QR — por isso essa segunda chamada é sempre necessária logo depois de criar a instância.
+- `estado_conexao(nome)` — `GET /instance/connectionState/{instance}`, retorna `open`/`connecting`/`close`.
+- `excluir_instancia(nome)` — `DELETE /instance/delete/{instance}`, usado só para desfazer uma criação parcial (nunca levanta exceção — é sempre uma limpeza best-effort).
+
+**Onboarding** (`main.py`): o nome da instância deixou de ser digitado — é sempre igual ao `slug` da empresa (já validado único). Em `POST /onboarding/configurar`, a ordem importa: primeiro chama `criar_instancia`; só grava a `Empresa` no banco se isso funcionar. Se a criação no banco falhar depois (ex.: `IntegrityError`), `excluir_instancia` desfaz a instância já criada — evita empresa cadastrada sem bot funcionando ou instância órfã na Evolution. Depois de criar, o fluxo vai para `/onboarding/conectar`, que mostra o QR/código de pareamento e faz polling em `/onboarding/conectar/status` a cada ~3s até `state == "open"`.
+
+**Painel** (`admin.py`): `/admin/empresas/{id}/conectar` reusa o mesmo fluxo (gerar QR + polling) para quando a sessão do WhatsApp de uma empresa já existente cai — celular trocado, dispositivo desvinculado etc. Restrito a `require_papel_admin` (superadmin ou papel `admin` da própria empresa; `load_empresa` garante que não dá para reconectar a instância de outra empresa).
+
+O HTML/JS de exibir o QR e fazer o polling é um único partial (`templates/partials/qrcode_connect.html`) incluído tanto pelo onboarding quanto pelo painel — o QR é desenhado no navegador (lib `qrcode-generator` via CDN) a partir do campo `code`; o `pairingCode` é sempre mostrado como texto, como alternativa que não depende de nenhuma lib de imagem.
+
+Requer a variável `PUBLIC_BASE_URL` (URL pública do bot) para montar a URL de webhook passada à Evolution API na criação da instância.
+
 ## Configurações pelo painel
 
 `/admin/configuracoes` reúne, num formulário único (configuração global do sistema, não por empresa), tudo que antes só dava para trocar editando o `.env` e reiniciando o processo: credenciais da Meta, palavra de ativação do bot, parâmetros de lembrete automático e configuração completa da camada de IA.

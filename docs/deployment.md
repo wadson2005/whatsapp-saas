@@ -37,13 +37,15 @@ docker compose up -d
 ```bash
 cd bot-app
 cp .env.example .env
-# preencha DATABASE_URL, REDIS_URL, credenciais da Meta, ADMIN_PASSWORD e SESSION_SECRET_KEY
+# preencha DATABASE_URL, REDIS_URL, credenciais da Meta, PUBLIC_BASE_URL, ADMIN_PASSWORD e SESSION_SECRET_KEY
 
 python -m scripts.criar_tabelas   # bootstrap idempotente do schema
 docker compose up --build -d
 ```
 
 O healthcheck do container (`/readyz`) só considera o serviço saudável depois de validar a conexão com PostgreSQL e Redis.
+
+`PUBLIC_BASE_URL` precisa ser o domínio público real (o mesmo do Caddy, passo 4) — é ela que a aplicação usa para dizer à Evolution API para onde mandar o webhook ao criar uma instância pelo onboarding ou pelo painel (`/admin/empresas/{id}/conectar`). Se o domínio ainda não estiver resolvendo/com TLS válido quando alguém passar pelo onboarding, a instância é criada mas as mensagens não chegam até o domínio ficar no ar.
 
 ### 3. Supervisionar com systemd
 
@@ -64,7 +66,9 @@ sudo systemctl reload caddy
 
 ## Variáveis obrigatórias
 
-Ver a lista completa em [bot-app/.env.example](../bot-app/.env.example) e na seção "Variáveis de ambiente" do [README](../README.md). As que impedem a aplicação de subir se ausentes ou fracas: `DATABASE_URL`, `REDIS_URL`, `EVOLUTION_API_KEY`, `META_TOKEN`, `META_PHONE_NUMBER_ID`, `ADMIN_PASSWORD`, `SESSION_SECRET_KEY`.
+Ver a lista completa em [bot-app/.env.example](../bot-app/.env.example) e na seção "Variáveis de ambiente" do [README](../README.md). As que impedem a aplicação de subir se ausentes ou fracas: `DATABASE_URL`, `REDIS_URL`, `EVOLUTION_API_KEY`, `PUBLIC_BASE_URL`, `META_TOKEN`, `META_PHONE_NUMBER_ID`, `ADMIN_PASSWORD`, `SESSION_SECRET_KEY`.
+
+> **Atualizando uma instalação existente:** `PUBLIC_BASE_URL` é uma variável nova — se o processo já estava rodando antes dessa mudança, adicione-a ao `.env` antes de reiniciar, senão a aplicação não sobe (falha de validação na inicialização, igual às outras variáveis obrigatórias).
 
 ## Template de mensagem para lembretes
 
@@ -104,6 +108,7 @@ cd bot-app && python -m scripts.retomar
 ## Checklist antes de ir para produção
 
 - [ ] `ADMIN_PASSWORD` e `SESSION_SECRET_KEY` gerados com valores fortes (não os exemplos do `.env.example`).
+- [ ] `PUBLIC_BASE_URL` configurado com o domínio público real e o Caddy já respondendo nele — necessário antes de cadastrar a primeira empresa pelo onboarding.
 - [ ] `DATABASE_URL` apontando para PostgreSQL (não SQLite) — o schema é compatível com os dois, mas SQLite não é recomendado para múltiplos workers/produção.
 - [ ] Template de lembrete aprovado no Meta Business Manager.
 - [ ] Postgres e Redis expostos apenas em `127.0.0.1` (não publicamente).

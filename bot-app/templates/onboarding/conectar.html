@@ -1,0 +1,16 @@
+{% extends 'onboarding/base.html' %}
+{% block content %}
+<div class="d-flex flex-column gap-3">
+  <div>
+    <span class="step-pill">Último passo</span>
+    <h2 class="h3 fw-bold mb-1 mt-3">Conecte o WhatsApp da empresa</h2>
+    <p class="field-hint mb-0">Escaneie o código com o celular que vai atender pelo bot. Assim que conectar, a página avança sozinha.</p>
+  </div>
+
+  {% include 'partials/qrcode_connect.html' %}
+
+  <div class="text-center mt-2">
+    <a href="{{ skip_url }}" class="small">Prefiro conectar depois</a>
+  </div>
+</div>
+{% endblock %}

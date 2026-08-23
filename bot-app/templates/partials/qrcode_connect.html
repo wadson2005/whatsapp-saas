@@ -1,0 +1,95 @@
+{% if qrcode_erro %}
+<div class="alert alert-danger border-0">{{ qrcode_erro }}</div>
+{% endif %}
+
+<div id="qrcode-connect" data-status-url="{{ status_url }}" data-refresh-url="{{ refresh_url }}" data-next-url="{{ next_url }}">
+  <script type="application/json" id="qrcode-data">{{ qrcode_json | safe }}</script>
+
+  <div class="text-center mb-3">
+    <div id="qrcode-canvas" class="d-inline-block p-3 bg-white rounded-3 border"></div>
+  </div>
+
+  <div id="qrcode-pairing" class="text-center mb-3" style="display:none;">
+    <div class="small text-secondary mb-1">Ou abra o WhatsApp → Dispositivos conectados → Conectar com número de telefone e digite:</div>
+    <div class="fs-3 fw-bold" style="letter-spacing: 0.15em;" id="qrcode-pairing-code"></div>
+  </div>
+
+  <div class="d-flex justify-content-between align-items-center gap-2">
+    <span id="qrcode-status" class="badge text-bg-secondary">Aguardando conexão…</span>
+    <button type="button" id="qrcode-refresh" class="btn btn-sm btn-outline-secondary">Gerar novo código</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+<script>
+(function () {
+  var root = document.getElementById("qrcode-connect");
+  var statusUrl = root.dataset.statusUrl;
+  var refreshUrl = root.dataset.refreshUrl;
+  var nextUrl = root.dataset.nextUrl;
+  var canvas = document.getElementById("qrcode-canvas");
+  var pairingBox = document.getElementById("qrcode-pairing");
+  var pairingCode = document.getElementById("qrcode-pairing-code");
+  var statusBadge = document.getElementById("qrcode-status");
+  var refreshBtn = document.getElementById("qrcode-refresh");
+  var polling = null;
+
+  function desenharQr(codigo) {
+    canvas.innerHTML = "";
+    if (!codigo) return;
+    try {
+      var qr = qrcode(0, "M");
+      qr.addData(codigo);
+      qr.make();
+      canvas.innerHTML = qr.createSvgTag({ cellSize: 5, margin: 2 });
+    } catch (e) {
+      canvas.innerHTML = '<p class="text-secondary small mb-0">Não foi possível desenhar o QR code. Use o código abaixo.</p>';
+    }
+  }
+
+  function aplicarQrcode(dados) {
+    if (!dados) return;
+    if (dados.code) {
+      desenharQr(dados.code);
+    }
+    if (dados.pairingCode) {
+      pairingCode.textContent = dados.pairingCode;
+      pairingBox.style.display = "";
+    } else {
+      pairingBox.style.display = "none";
+    }
+  }
+
+  var dadosIniciais = JSON.parse(document.getElementById("qrcode-data").textContent || "null");
+  aplicarQrcode(dadosIniciais);
+
+  refreshBtn.addEventListener("click", function () {
+    refreshBtn.disabled = true;
+    fetch(refreshUrl, { method: "POST" })
+      .then(function (r) { return r.json(); })
+      .then(function (dados) {
+        aplicarQrcode(dados);
+        refreshBtn.disabled = false;
+      })
+      .catch(function () {
+        refreshBtn.disabled = false;
+      });
+  });
+
+  function verificarStatus() {
+    fetch(statusUrl)
+      .then(function (r) { return r.json(); })
+      .then(function (dados) {
+        if (dados.state === "open") {
+          statusBadge.textContent = "Conectado!";
+          statusBadge.className = "badge text-bg-success";
+          clearInterval(polling);
+          window.location.href = nextUrl;
+        }
+      })
+      .catch(function () {});
+  }
+
+  polling = setInterval(verificarStatus, 3000);
+})();
+</script>

@@ -34,6 +34,7 @@ class Settings(BaseSettings):
         default="teste-aprendizado",
         validation_alias="SEED_EMPRESA_EVOLUTION_INSTANCE",
     )
+    public_base_url: str = Field(validation_alias="PUBLIC_BASE_URL")
     admin_username: str = Field(default="admin", validation_alias="ADMIN_USERNAME")
     admin_password: str = Field(validation_alias="ADMIN_PASSWORD")
     session_secret_key: str = Field(validation_alias="SESSION_SECRET_KEY")
@@ -65,6 +66,14 @@ class Settings(BaseSettings):
         if not value or value == "change-me-in-production" or len(value) < 16:
             raise ValueError("SESSION_SECRET_KEY deve ser definido com um valor forte de pelo menos 16 caracteres")
         return value
+
+    @field_validator("public_base_url")
+    @classmethod
+    def validar_public_base_url(cls, value: str) -> str:
+        valor = (value or "").strip().rstrip("/")
+        if not valor or not valor.startswith(("http://", "https://")):
+            raise ValueError("PUBLIC_BASE_URL deve ser uma URL completa (ex.: https://seu-dominio.com)")
+        return valor
 
     @property
     def bot_activation_words(self) -> tuple[str, ...]:

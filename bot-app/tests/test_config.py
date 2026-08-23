@@ -13,6 +13,7 @@ BOOTSTRAP_ENV = {
     "EVOLUTION_API_KEY": "x",
     "META_TOKEN": "x",
     "META_PHONE_NUMBER_ID": "x",
+    "PUBLIC_BASE_URL": "https://teste.exemplo.com",
     "ADMIN_PASSWORD": "senha-super-segura-123",
     "SESSION_SECRET_KEY": "0123456789abcdef0123456789abcdef",
 }
