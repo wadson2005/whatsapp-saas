@@ -84,6 +84,25 @@
       <input type="text" name="primeiro_servico_preco" class="form-control" placeholder="120,00" value="{{ draft.get('primeiro_servico_preco', '') if draft.get('primeiro_servico_preco') is not none else '' }}" />
       {% if errors.get('primeiro_servico_preco') %}<div class="text-danger small mt-1">{{ errors.get('primeiro_servico_preco') }}</div>{% endif %}
     </div>
+    <div class="col-12 border-top pt-3 mt-1">
+      <div class="fw-bold mb-1">Seu acesso ao painel</div>
+      <div class="field-hint mb-3">Você vai usar esse e-mail e senha para entrar no painel administrativo da empresa.</div>
+    </div>
+    <div class="col-12">
+      <label class="form-label">Seu nome</label>
+      <input type="text" name="admin_nome" class="form-control" required value="{{ draft.get('admin_nome', '') }}" />
+      {% if errors.get('admin_nome') %}<div class="text-danger small mt-1">{{ errors.get('admin_nome') }}</div>{% endif %}
+    </div>
+    <div class="col-12 col-lg-6">
+      <label class="form-label">Seu e-mail</label>
+      <input type="email" name="admin_email" class="form-control" required value="{{ draft.get('admin_email', '') }}" />
+      {% if errors.get('admin_email') %}<div class="text-danger small mt-1">{{ errors.get('admin_email') }}</div>{% endif %}
+    </div>
+    <div class="col-12 col-lg-6">
+      <label class="form-label">Senha</label>
+      <input type="password" name="admin_senha" class="form-control" required minlength="8" placeholder="Mínimo 8 caracteres" />
+      {% if errors.get('admin_senha') %}<div class="text-danger small mt-1">{{ errors.get('admin_senha') }}</div>{% endif %}
+    </div>
     <div class="col-12 d-flex flex-column flex-sm-row gap-2 justify-content-end mt-2">
       <a href="/onboarding" class="btn btn-outline-secondary">Voltar</a>
       <button type="submit" class="btn btn-brand btn-lg">Continuar para conectar o WhatsApp</button>

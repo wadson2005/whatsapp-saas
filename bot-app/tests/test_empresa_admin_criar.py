@@ -16,13 +16,13 @@ def carregar_app(monkeypatch, tmp_path: Path):
     return main, admin_module, models
 
 
-def _mockar_evolution(admin_module, *, criar_ok=True):
-    from integrations.evolution_client import EvolutionAPIError
+def _mockar_evolution(admin_module, *, criar_ok=True, erro=None):
+    from integrations.evolution_client import EvolutionAPIConexaoError
 
     if criar_ok:
         admin_module.criar_instancia = AsyncMock(return_value={"instance": {"status": "created"}})
     else:
-        admin_module.criar_instancia = AsyncMock(side_effect=EvolutionAPIError("Evolution API indisponível"))
+        admin_module.criar_instancia = AsyncMock(side_effect=erro or EvolutionAPIConexaoError("Não foi possível conectar à Evolution API."))
     admin_module.excluir_instancia = AsyncMock(return_value=None)
     admin_module.gerar_qrcode = AsyncMock(return_value={"pairingCode": "WZYEH1YY", "code": "2@abc", "count": 1})
 
@@ -103,7 +103,7 @@ def test_criar_empresa_sem_telefone_nao_chama_evolution(monkeypatch, tmp_path):
         db.close()
 
 
-def test_criar_empresa_nao_persiste_se_evolution_api_falhar(monkeypatch, tmp_path):
+def test_criar_empresa_nao_persiste_se_evolution_api_indisponivel(monkeypatch, tmp_path):
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
     _mockar_evolution(admin_module, criar_ok=False)
 
@@ -113,7 +113,28 @@ def test_criar_empresa_nao_persiste_se_evolution_api_falhar(monkeypatch, tmp_pat
         resposta = client.post("/admin/empresas/nova", data=_dados_empresa(), follow_redirects=False)
 
     assert resposta.status_code == 502
-    assert "Não foi possível conectar ao WhatsApp" in resposta.text
+    assert "Não foi possível conectar ao serviço de WhatsApp" in resposta.text
+
+    db = main.SessionLocal()
+    try:
+        assert db.query(models.Empresa).count() == 0
+    finally:
+        db.close()
+
+
+def test_criar_empresa_mostra_motivo_real_quando_evolution_api_recusa(monkeypatch, tmp_path):
+    main, admin_module, models = carregar_app(monkeypatch, tmp_path)
+    from integrations.evolution_client import EvolutionAPIError
+
+    _mockar_evolution(admin_module, criar_ok=False, erro=EvolutionAPIError("Esse número já está em uso por outra instância"))
+
+    with TestClient(main.app) as client:
+        _login_superadmin(client)
+
+        resposta = client.post("/admin/empresas/nova", data=_dados_empresa(), follow_redirects=False)
+
+    assert resposta.status_code == 502
+    assert "Esse número já está em uso por outra instância" in resposta.text
 
     db = main.SessionLocal()
     try:

@@ -44,6 +44,7 @@ APP_MODULES = [
     "services.texto_utils",
     "services.usuarios",
     "integrations",
+    "integrations.email_client",
     "integrations.evolution_client",
     "integrations.meta_client",
     "ai",

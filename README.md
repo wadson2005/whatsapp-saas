@@ -2,7 +2,7 @@
 
 Plataforma de atendimento e agendamento via WhatsApp para pequenos negócios (clínicas, barbearias, salões, restaurantes), com um único código-base atendendo várias empresas ao mesmo tempo. Cada empresa tem seu próprio catálogo de serviços, horários, base de conhecimento e configurações — isolados por `empresa_id` no mesmo banco.
 
-[![Testes](https://img.shields.io/badge/testes-101%20passing-brightgreen)]()
+[![Testes](https://img.shields.io/badge/testes-120%20passing-brightgreen)]()
 [![Python](https://img.shields.io/badge/python-3.12-blue)]()
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688)]()
 [![Licença](https://img.shields.io/badge/licença-MIT-blue)](LICENSE)
@@ -28,7 +28,7 @@ Documentação mais profunda:
 
 ## Principais funcionalidades
 
-- **Onboarding público** (`/onboarding`) — cadastra empresa, primeiro serviço e cria/conecta a instância do WhatsApp automaticamente (QR code na hora), sem terminal e sem tocar na Evolution API manualmente.
+- **Onboarding público** (`/onboarding`) — cadastra empresa, primeiro serviço, cria o usuário `admin` da empresa (já autenticado no painel ao final) e cria/conecta a instância do WhatsApp automaticamente (QR code na hora), sem terminal, sem tocar na Evolution API manualmente e sem depender de cadastro manual de usuário depois.
 - **Motor de agendamento** — valida empresa/serviço ativos, horário de funcionamento, almoço, dias indisponíveis e conflito com outros agendamentos; sugere horários alternativos automaticamente.
 - **Máquina de estados conversacional** — fluxo guiado por botões/listas interativas, com atalhos globais (`menu`, `cancelar`, `reagendar`) e fallback contextual (nunca deixa o cliente sem resposta).
 - **Lembretes automáticos** — ciclo assíncrono embutido no processo, envia lembrete via template aprovado da Meta antes do horário marcado, com controle de envio único por agendamento.
@@ -38,6 +38,7 @@ Documentação mais profunda:
 - **Painel administrativo completo** — dashboard com indicadores por período, insights automáticos gerados a partir de dados reais, listagem de clientes inativos, CRUD de empresas/serviços/conhecimento, e configurações operacionais editáveis sem reiniciar o processo.
 - **Multi-tenant real, inclusive no acesso** — isolamento por `empresa_id` em todas as tabelas de negócio; cada empresa cliente pode logar com seu próprio usuário e só enxerga os próprios dados, sem depender do acesso único da plataforma.
 - **Papéis e permissões** — usuário `admin` de uma empresa gerencia serviços, conhecimento e outros usuários da própria empresa; `operador` cobre o dia a dia (agenda, clientes, atendimento) sem acesso a exclusões, configurações ou gestão de usuários.
+- **Recuperação de senha self-service** (`/admin/esqueci-senha`) — link de redefinição por e-mail, válido por 1 hora e de uso único, sem depender de um superadmin para redefinir a senha de outro usuário.
 - **Conexão de WhatsApp sem intervenção manual na Evolution API** — criar a empresa já cria a instância e configura o webhook; se a sessão do WhatsApp cair depois (celular trocado, dispositivo desvinculado), `/admin/empresas/{id}/conectar` gera um novo QR code direto do painel.
 
 ## Diferenciais técnicos
@@ -45,7 +46,7 @@ Documentação mais profunda:
 - **Compatibilidade real SQLite/PostgreSQL** — os testes rodam em SQLite e a produção em PostgreSQL contra o mesmo bootstrap de schema, sem duplicar lógica de migration (ver `core/db_compat.py`).
 - **Configuração operacional viva no banco** — token da Meta, provider de IA, antecedência de lembrete e palavra de ativação são editáveis pelo painel e valem imediatamente, sem redeploy.
 - **IA como fallback, nunca como autoridade** — a camada de IA só é consultada quando a máquina de estados e a base de conhecimento não resolvem, e nunca executa uma ação destrutiva (cancelamento, por exemplo) sem passar pela tela de confirmação normal.
-- **Suíte de testes de verdade** — 101 testes automatizados cobrindo onboarding, conversa, agendamento, lembretes, base de conhecimento, métricas, papéis/permissões e a camada de IA (com providers e Redis simulados, sem depender de serviços externos).
+- **Suíte de testes de verdade** — 120 testes automatizados cobrindo onboarding, conversa, agendamento, lembretes, base de conhecimento, métricas, papéis/permissões e a camada de IA (com providers e Redis simulados, sem depender de serviços externos).
 - **Bootstrap de schema idempotente** — cria tabelas novas e adiciona colunas em bancos já existentes automaticamente, sem exigir um framework de migration para um projeto deste porte.
 
 ## Stack técnica
@@ -137,6 +138,7 @@ Todas documentadas em [bot-app/.env.example](bot-app/.env.example). As mais rele
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | sim | Login do superadmin da plataforma (acesso a todas as empresas) — `ADMIN_PASSWORD` precisa ser forte, valores padrão são rejeitados na inicialização. Usuários por empresa (`admin`/`operador`) são cadastrados depois, em `/admin/usuarios` |
 | `SESSION_SECRET_KEY` | sim | Chave de assinatura de sessão (≥16 caracteres, gere com `openssl rand -hex 32`) |
 | `AI_ENABLED` | não (padrão `false`) | Liga a camada de IA — sem isso, comportamento idêntico ao de não ter essa camada |
+| `SMTP_HOST` / `SMTP_USUARIO` / `SMTP_SENHA` / `SMTP_REMETENTE` | não | Envio do e-mail de "esqueci minha senha" (`/admin/esqueci-senha`). Qualquer provedor com relay SMTP funciona. Sem isso, a tela continua respondendo normalmente, só não envia e-mail nenhum (fica só no log) |
 
 > A maioria das variáveis operacionais (Meta, IA, lembretes, palavra de ativação) só serve como **valor inicial**: depois do primeiro boot, o sistema copia esses valores para a tabela `configuracao_sistema` e passa a usar o banco como fonte viva, editável em `/admin/configuracoes` sem reiniciar o processo.
 
@@ -201,12 +203,13 @@ O bot identifica a empresa pela `instance`, abre (ou recupera) o estado da conve
 
 - [x] Papéis e permissões no painel administrativo — login por empresa (`admin`/`operador`), superadmin de plataforma via `.env` como bootstrap.
 - [x] Cadastro manual de cliente final direto pelo painel.
+- [x] Criação do primeiro usuário da empresa integrada ao onboarding público — o onboarding já cria o usuário `admin` da empresa e autentica no painel automaticamente, sem depender de cadastro manual.
+- [x] Recuperação de senha self-service (`/admin/esqueci-senha`) via e-mail (SMTP genérico).
 - [ ] Cobrança recorrente (assinatura por empresa).
 - [ ] Observabilidade e auditoria mais completas (métricas operacionais, alertas).
 - [ ] Ampliar os pontos de fallback cobertos pela camada de IA e adicionar mais providers.
 - [ ] Criptografia em repouso para segredos guardados no banco (token da Meta, chave de IA).
 - [ ] Distribuição automática de solicitações de atendimento humano para operadores.
-- [ ] Criação do primeiro usuário da empresa integrada ao onboarding público (hoje precisa ser cadastrado manualmente em `/admin/usuarios` por um admin).
 
 ## Melhorias futuras possíveis
 

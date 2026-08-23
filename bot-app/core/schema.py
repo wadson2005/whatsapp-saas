@@ -52,3 +52,5 @@ def ensure_schema():
         _add_column_if_missing(conn, "agendamentos", "cancelado_em TIMESTAMP")
         _add_column_if_missing(conn, "agendamentos", "motivo_cancelamento VARCHAR")
         _add_column_if_missing(conn, "agendamentos", "lembrete_enviado_em TIMESTAMP")
+        _add_column_if_missing(conn, "usuarios_painel", "reset_token_hash VARCHAR")
+        _add_column_if_missing(conn, "usuarios_painel", "reset_token_expira_em TIMESTAMP")

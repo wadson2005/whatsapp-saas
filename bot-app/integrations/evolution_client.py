@@ -11,7 +11,11 @@ TIMEOUT_SEGUNDOS = 15.0
 
 
 class EvolutionAPIError(Exception):
-    """Levantada quando a Evolution API não responde ou recusa a chamada."""
+    """Levantada quando a Evolution API recusa a chamada (HTTP >= 400)."""
+
+
+class EvolutionAPIConexaoError(EvolutionAPIError):
+    """Levantada quando não foi possível alcançar a Evolution API (rede, timeout, DNS)."""
 
 
 def _headers() -> dict[str, str]:
@@ -25,7 +29,7 @@ async def _requisitar(method: str, caminho: str, **kwargs) -> dict:
             resposta = await client.request(method, url, headers=_headers(), **kwargs)
     except httpx.HTTPError as exc:
         logger.error("Falha de rede ao chamar a Evolution API (%s %s): %s", method, caminho, exc)
-        raise EvolutionAPIError("Não foi possível conectar à Evolution API.") from exc
+        raise EvolutionAPIConexaoError("Não foi possível conectar à Evolution API.") from exc
 
     try:
         corpo = resposta.json()

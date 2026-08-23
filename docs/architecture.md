@@ -105,7 +105,7 @@ Criar uma empresa cria e conecta a instância na Evolution API automaticamente �
 - `estado_conexao(nome)` — `GET /instance/connectionState/{instance}`, retorna `open`/`connecting`/`close`.
 - `excluir_instancia(nome)` — `DELETE /instance/delete/{instance}`, usado só para desfazer uma criação parcial (nunca levanta exceção — é sempre uma limpeza best-effort).
 
-**Onboarding** (`main.py`): o nome da instância deixou de ser digitado — é sempre igual ao `slug` da empresa (já validado único). Em `POST /onboarding/configurar`, a ordem importa: primeiro chama `criar_instancia`; só grava a `Empresa` no banco se isso funcionar. Se a criação no banco falhar depois (ex.: `IntegrityError`), `excluir_instancia` desfaz a instância já criada — evita empresa cadastrada sem bot funcionando ou instância órfã na Evolution. Depois de criar, o fluxo vai para `/onboarding/conectar`, que mostra o QR/código de pareamento e faz polling em `/onboarding/conectar/status` a cada ~3s até `state == "open"`.
+**Onboarding** (`main.py`): o nome da instância deixou de ser digitado — é sempre igual ao `slug` da empresa (já validado único). Em `POST /onboarding/configurar`, a ordem importa: primeiro chama `criar_instancia`; só grava `Empresa`, `Servico` e o `UsuarioPainel` (`papel="admin"`) no banco se isso funcionar. Se a criação no banco falhar depois (ex.: `IntegrityError`), `excluir_instancia` desfaz a instância já criada — evita empresa cadastrada sem bot funcionando ou instância órfã na Evolution. O e-mail do admin é checado contra duplicidade antes mesmo de chamar a Evolution API (mesma lógica do slug no passo 1), para não gastar uma chamada externa com um formulário que já vai falhar. Ao concluir, a sessão já é autenticada como esse usuário (mesmas chaves de sessão de `admin.login_submit`) — o fluxo vai para `/onboarding/conectar` (QR/código de pareamento, polling em `/onboarding/conectar/status` a cada ~3s até `state == "open"`) e, depois, direto para o dashboard, sem passar por `/admin/login`.
 
 **Painel** (`admin.py`): `POST /admin/empresas/nova` segue a mesma lógica do onboarding — nome da instância = `slug`, `criar_instancia` roda antes de gravar a `Empresa`, e um `IntegrityError` no commit desfaz a instância via `excluir_instancia`. O formulário não pede mais o nome da instância (campo removido); depois de criar, redireciona direto para `/admin/empresas/{id}/conectar` para escanear o QR. Essa rota também é reusada para reconectar uma empresa já existente cuja sessão do WhatsApp caiu — celular trocado, dispositivo desvinculado etc. Restrito a `require_papel_admin`/`require_superadmin` (`load_empresa` garante que não dá para reconectar a instância de outra empresa).
 
@@ -187,8 +187,15 @@ Decisões já tomadas:
 - O estado da conversa expira automaticamente no Redis.
 - `ADMIN_PASSWORD` e `SESSION_SECRET_KEY` são validados na inicialização (rejeita valores fracos ou placeholders do `.env.example`).
 
+### Recuperação de senha
+
+`/admin/esqueci-senha` gera um token de uso único (`secrets.token_urlsafe(32)`, guardado como hash SHA-256 em `usuarios_painel.reset_token_hash`, nunca em texto puro) com validade de 1 hora, e envia por e-mail (`integrations/email_client.py`, SMTP genérico via `smtplib` — funciona com Gmail, SendGrid, Mailgun, SES etc., basta configurar `SMTP_*` no `.env`) um link para `/admin/redefinir-senha?token=...`.
+
+A resposta de `/admin/esqueci-senha` é **sempre a mesma mensagem genérica**, exista ou não um usuário com aquele e-mail — evita que alguém descubra por tentativa quais e-mails têm cadastro no painel. Se o SMTP não estiver configurado (`SMTP_HOST`/`SMTP_USUARIO`/`SMTP_SENHA`/`SMTP_REMETENTE` vazios), a falha de envio é só logada — a tela não trava nem revela o problema ao visitante.
+
+Superadmin (login via `ADMIN_USERNAME`/`ADMIN_PASSWORD` do `.env`) não passa por esse fluxo — não tem linha em `usuarios_painel`; a única forma de trocar essa senha é editando o `.env` e reiniciando o processo.
+
 Pontos ainda em aberto:
 
 - Criptografia em repouso para segredos guardados no banco (token da Meta, chave de IA) — hoje ficam em texto puro.
 - Validação/renovação automática de token da Meta.
-- Criação do primeiro usuário de uma empresa integrada ao onboarding público — hoje precisa ser cadastrada manualmente em `/admin/usuarios`.

@@ -19,10 +19,12 @@ from admin import admin_app, parse_optional_float
 from conversa import processar_mensagem
 from core.config import settings
 from core.database import SessionLocal, get_db
-from core.models import Empresa, Servico
+from core.models import Empresa, Servico, UsuarioPainel
 from core.redis_client import redis_cliente
 from core.schema import ensure_schema
+from core.security import hash_senha
 from integrations.evolution_client import (
+    EvolutionAPIConexaoError,
     EvolutionAPIError,
     criar_instancia,
     estado_conexao,
@@ -32,6 +34,7 @@ from integrations.evolution_client import (
 )
 from services.configuracoes import obter_configuracao
 from services.lembretes import enviar_lembretes_pendentes
+from services.usuarios import PAPEL_ADMIN
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +42,7 @@ BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 SLUG_REGEX = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key=settings.session_secret_key, same_site="lax", https_only=False)
@@ -129,12 +133,24 @@ def _validar_configuracao_form(form) -> tuple[dict[str, str], dict]:
         "primeiro_servico_nome": (form.get("primeiro_servico_nome") or "").strip(),
         "primeiro_servico_duracao_minutos": (form.get("primeiro_servico_duracao_minutos") or "30").strip(),
         "primeiro_servico_preco": (form.get("primeiro_servico_preco") or "").strip(),
+        "admin_nome": (form.get("admin_nome") or "").strip(),
+        "admin_email": (form.get("admin_email") or "").strip().lower(),
     }
+    admin_senha = form.get("admin_senha") or ""
 
     if len(dados["telefone_whatsapp"]) < 10:
         erros["telefone_whatsapp"] = "Informe um telefone WhatsApp válido."
     if not dados["primeiro_servico_nome"]:
         erros["primeiro_servico_nome"] = "Informe o primeiro serviço."
+
+    if not dados["admin_nome"]:
+        erros["admin_nome"] = "Informe seu nome."
+    if not dados["admin_email"]:
+        erros["admin_email"] = "Informe seu e-mail de acesso."
+    elif not EMAIL_REGEX.fullmatch(dados["admin_email"]):
+        erros["admin_email"] = "Informe um e-mail válido."
+    if len(admin_senha) < 8:
+        erros["admin_senha"] = "A senha deve ter pelo menos 8 caracteres."
 
     try:
         horario_abertura = _parse_horario(dados["horario_abertura"])
@@ -179,6 +195,7 @@ def _validar_configuracao_form(form) -> tuple[dict[str, str], dict]:
     dados["intervalo_entre_atendimentos_minutos"] = intervalo
     dados["primeiro_servico_duracao_minutos"] = duracao
     dados["primeiro_servico_preco"] = preco
+    dados["admin_senha"] = admin_senha
     return erros, dados
 
 
@@ -260,6 +277,9 @@ async def onboarding_configurar_submit(request: Request, db: Session = Depends(g
     form = await request.form()
     erros, dados = _validar_configuracao_form(form)
 
+    if not erros.get("admin_email") and db.query(UsuarioPainel.id).filter_by(email=dados["admin_email"]).first():
+        erros["admin_email"] = "Já existe um usuário com esse e-mail."
+
     if erros:
         return _draft_error_response(
             request,
@@ -276,7 +296,7 @@ async def onboarding_configurar_submit(request: Request, db: Session = Depends(g
 
     try:
         await criar_instancia(nome_instancia, dados["telefone_whatsapp"], webhook_url)
-    except EvolutionAPIError:
+    except EvolutionAPIConexaoError:
         return _draft_error_response(
             request,
             "onboarding/setup.html",
@@ -284,7 +304,17 @@ async def onboarding_configurar_submit(request: Request, db: Session = Depends(g
             title="Configuração do WhatsApp",
             step=2,
             draft={**draft, **dados},
-            errors={"geral": "Não foi possível conectar ao WhatsApp agora. Verifique o número informado e tente novamente em instantes."},
+            errors={"geral": "Não foi possível conectar ao serviço de WhatsApp agora. Tente novamente em alguns instantes."},
+        )
+    except EvolutionAPIError as exc:
+        return _draft_error_response(
+            request,
+            "onboarding/setup.html",
+            502,
+            title="Configuração do WhatsApp",
+            step=2,
+            draft={**draft, **dados},
+            errors={"geral": f"O WhatsApp recusou a conexão: {exc}. Verifique o número informado e tente novamente."},
         )
 
     try:
@@ -310,10 +340,23 @@ async def onboarding_configurar_submit(request: Request, db: Session = Depends(g
             ativo=True,
         )
         db.add(servico)
+
+        usuario = UsuarioPainel(
+            empresa_id=empresa.id,
+            nome=dados["admin_nome"],
+            email=dados["admin_email"],
+            senha_hash=hash_senha(dados["admin_senha"]),
+            papel=PAPEL_ADMIN,
+            ativo=True,
+        )
+        db.add(usuario)
+
         db.commit()
         db.refresh(empresa)
+        db.refresh(usuario)
     except IntegrityError:
         db.rollback()
+        logger.exception("Conflito ao salvar empresa do onboarding (slug=%s)", draft.get("slug"))
         await excluir_instancia(nome_instancia)
         return _draft_error_response(
             request,
@@ -322,16 +365,22 @@ async def onboarding_configurar_submit(request: Request, db: Session = Depends(g
             title="Configuração do WhatsApp",
             step=2,
             draft={**draft, **dados},
-            errors={"geral": "Não foi possível salvar a empresa com esses dados."},
+            errors={"geral": "Esse identificador de empresa acabou de ser usado por outro cadastro. Volte e escolha outro."},
         )
 
     _clear_onboarding_draft(request)
+    request.session["admin_authenticated"] = True
+    request.session["admin_username"] = usuario.nome
+    request.session["is_superadmin"] = False
+    request.session["usuario_id"] = usuario.id
+    request.session["usuario_empresa_id"] = usuario.empresa_id
+    request.session["usuario_papel"] = usuario.papel
     _save_onboarding_result(
         request,
         {
             "empresa_nome": empresa.nome,
             "servico_nome": dados["primeiro_servico_nome"],
-            "admin_url": "/admin/login",
+            "admin_url": "/admin/dashboard",
         },
     )
     request.session["onboarding_instancia"] = nome_instancia

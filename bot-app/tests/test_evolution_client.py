@@ -100,7 +100,7 @@ def test_requisicao_com_status_de_erro_levanta_evolution_api_error(monkeypatch, 
         asyncio.run(evolution_client.estado_conexao("nao-existe"))
 
 
-def test_falha_de_rede_levanta_evolution_api_error(monkeypatch, tmp_path):
+def test_falha_de_rede_levanta_evolution_api_conexao_error(monkeypatch, tmp_path):
     evolution_client = carregar_modulo(monkeypatch, tmp_path)
     _instalar_cliente_falso(
         monkeypatch,
@@ -110,7 +110,7 @@ def test_falha_de_rede_levanta_evolution_api_error(monkeypatch, tmp_path):
 
     import asyncio
 
-    with pytest.raises(evolution_client.EvolutionAPIError):
+    with pytest.raises(evolution_client.EvolutionAPIConexaoError):
         asyncio.run(evolution_client.gerar_qrcode("clinica-a", "5511999999999"))
 
 

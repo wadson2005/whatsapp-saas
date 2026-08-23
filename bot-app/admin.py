@@ -1,4 +1,5 @@
 import hmac
+import logging
 import re
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -16,7 +17,9 @@ from starlette.templating import Jinja2Templates
 from core.config import settings
 from core.database import get_db
 from core.models import Agendamento, ClienteFinal, Empresa, EmpresaConhecimento, Servico, SolicitacaoAtendimento, UsuarioPainel
+from integrations.email_client import EmailError, enviar_email
 from integrations.evolution_client import (
+    EvolutionAPIConexaoError,
     EvolutionAPIError,
     criar_instancia,
     estado_conexao,
@@ -35,7 +38,11 @@ from services.usuarios import (
     autenticar_usuario,
     criar_usuario,
     listar_usuarios,
+    redefinir_senha,
+    solicitar_redefinicao_senha,
 )
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -395,6 +402,82 @@ async def logout(request: Request):
     return RedirectResponse(url="/admin/login", status_code=303)
 
 
+@admin_app.get("/esqueci-senha", response_class=HTMLResponse)
+async def esqueci_senha_page(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "admin/esqueci_senha.html",
+        page_context(request, title="Recuperar acesso"),
+    )
+
+
+@admin_app.post("/esqueci-senha")
+async def esqueci_senha_submit(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    email = (form.get("email") or "").strip().lower()
+
+    token = solicitar_redefinicao_senha(db, email) if email else None
+    if token:
+        link = f"{settings.public_base_url}/admin/redefinir-senha?token={token}"
+        corpo = (
+            "Recebemos um pedido para redefinir a senha do seu acesso ao painel.\n\n"
+            f"Se foi você, clique no link abaixo (válido por 1 hora):\n{link}\n\n"
+            "Se não foi você, pode ignorar este e-mail."
+        )
+        try:
+            await enviar_email(email, "Redefinição de senha - WhatsApp SaaS", corpo)
+        except EmailError:
+            logger.exception("Falha ao enviar e-mail de redefinição de senha para %s", email)
+
+    return templates.TemplateResponse(
+        request,
+        "admin/esqueci_senha.html",
+        page_context(
+            request,
+            title="Recuperar acesso",
+            message="Se esse e-mail estiver cadastrado, enviamos instruções para redefinir a senha.",
+        ),
+    )
+
+
+@admin_app.get("/redefinir-senha", response_class=HTMLResponse)
+async def redefinir_senha_page(request: Request):
+    token = request.query_params.get("token") or ""
+    return templates.TemplateResponse(
+        request,
+        "admin/redefinir_senha.html",
+        page_context(request, title="Redefinir senha", token=token),
+    )
+
+
+@admin_app.post("/redefinir-senha")
+async def redefinir_senha_submit(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    token = (form.get("token") or "").strip()
+    nova_senha = form.get("senha") or ""
+
+    erro = None
+    if len(nova_senha) < 8:
+        erro = "A senha deve ter pelo menos 8 caracteres."
+    else:
+        usuario = redefinir_senha(db, token, nova_senha)
+        if not usuario:
+            erro = "Link inválido ou expirado. Solicite uma nova redefinição."
+
+    if erro:
+        return templates.TemplateResponse(
+            request,
+            "admin/redefinir_senha.html",
+            page_context(request, title="Redefinir senha", token=token, error=erro),
+            status_code=400,
+        )
+
+    return RedirectResponse(
+        url="/admin/login?message=Senha redefinida com sucesso. Entre com a nova senha.",
+        status_code=303,
+    )
+
+
 def _periodo_dashboard(request: Request) -> tuple[datetime, datetime]:
     agora = datetime.utcnow()
     padrao_inicio = agora - timedelta(days=30)
@@ -557,7 +640,7 @@ async def empresa_new_submit(request: Request, db: Session = Depends(get_db), _:
 
     try:
         await criar_instancia(nome_instancia, telefone_normalizado, webhook_url)
-    except EvolutionAPIError:
+    except EvolutionAPIConexaoError:
         return templates.TemplateResponse(
             request,
             "admin/empresa_form.html",
@@ -566,7 +649,20 @@ async def empresa_new_submit(request: Request, db: Session = Depends(get_db), _:
                 title="Nova empresa",
                 empresa=dados,
                 action_url="/admin/empresas/nova",
-                error="Não foi possível conectar ao WhatsApp agora. Verifique o número informado e tente novamente em instantes.",
+                error="Não foi possível conectar ao serviço de WhatsApp agora. Tente novamente em alguns instantes.",
+            ),
+            status_code=502,
+        )
+    except EvolutionAPIError as exc:
+        return templates.TemplateResponse(
+            request,
+            "admin/empresa_form.html",
+            page_context(
+                request,
+                title="Nova empresa",
+                empresa=dados,
+                action_url="/admin/empresas/nova",
+                error=f"O WhatsApp recusou a conexão: {exc}. Verifique o número informado e tente novamente.",
             ),
             status_code=502,
         )
@@ -581,6 +677,7 @@ async def empresa_new_submit(request: Request, db: Session = Depends(get_db), _:
         db.refresh(empresa)
     except IntegrityError:
         db.rollback()
+        logger.exception("Conflito ao salvar nova empresa pelo painel (slug=%s)", dados.slug)
         await excluir_instancia(nome_instancia)
         return templates.TemplateResponse(
             request,
@@ -590,7 +687,7 @@ async def empresa_new_submit(request: Request, db: Session = Depends(get_db), _:
                 title="Nova empresa",
                 empresa=dados,
                 action_url="/admin/empresas/nova",
-                error="Já existe uma empresa com esse slug.",
+                error="Esse slug acabou de ser usado por outro cadastro. Escolha outro.",
             ),
             status_code=400,
         )

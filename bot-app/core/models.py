@@ -88,6 +88,8 @@ class UsuarioPainel(Base):
     papel = Column(String, nullable=False, default="operador")
     ativo = Column(Boolean, default=True)
     criado_em = Column(DateTime, default=datetime.utcnow)
+    reset_token_hash = Column(String, nullable=True)
+    reset_token_expira_em = Column(DateTime, nullable=True)
 
     empresa = relationship("Empresa")
 
