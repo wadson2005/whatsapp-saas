@@ -17,6 +17,13 @@ def carregar_app(monkeypatch, tmp_path: Path):
     return main, models, lembretes, agenda
 
 
+def _proxima_segunda_10h() -> datetime:
+    hoje = datetime.now()
+    dias_ate_segunda = (7 - hoje.weekday()) % 7 or 7
+    proxima_segunda = hoje + timedelta(days=dias_ate_segunda)
+    return proxima_segunda.replace(hour=10, minute=0, second=0, microsecond=0)
+
+
 def _seed_empresa(main, models, slug: str, nome: str, telefone: str, instancia: str):
     db = main.SessionLocal()
     try:
@@ -288,7 +295,7 @@ def test_reagendamento_reseta_lembrete_enviado_em(monkeypatch, tmp_path):
     try:
         agendamento_db = db.query(models.Agendamento).filter_by(id=agendamento.id).first()
         empresa_db = db.query(models.Empresa).filter_by(id=empresa.id).first()
-        novo_horario = datetime(2026, 8, 10, 10, 0)  # segunda-feira, dentro do horário de funcionamento
+        novo_horario = _proxima_segunda_10h()  # sempre futuro, dentro do horário de funcionamento
         atualizado, validacao = agenda.reagendar_agendamento(db, empresa_db, agendamento_db, novo_horario)
         assert validacao.ok
         assert atualizado.lembrete_enviado_em is None

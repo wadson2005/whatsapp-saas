@@ -1,0 +1,36 @@
+{% extends 'admin/base.html' %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-xl-8">
+    <div class="panel-card p-3 p-lg-4">
+      <div class="mb-4">
+        <h1 class="section-title mb-1">{{ title }}</h1>
+        <p class="text-secondary mb-0">Cadastre um cliente direto pelo painel, sem esperar o primeiro contato via WhatsApp.</p>
+      </div>
+      <form method="post" action="{{ action_url }}" class="row g-3">
+        <div class="col-12">
+          <label class="form-label">Empresa</label>
+          <select name="empresa_id" class="form-select" required>
+            <option value="">Selecione</option>
+            {% for empresa in empresas %}
+            <option value="{{ empresa.id }}" {% if selected_empresa_id == empresa.id %}selected{% endif %}>{{ empresa.nome }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-12 col-lg-6">
+          <label class="form-label">Nome</label>
+          <input type="text" name="nome" class="form-control" value="{{ cliente.nome if cliente and cliente.nome else '' }}" />
+        </div>
+        <div class="col-12 col-lg-6">
+          <label class="form-label">Telefone (WhatsApp)</label>
+          <input type="text" name="telefone" class="form-control" placeholder="Ex.: 5511999999999" required value="{{ cliente.telefone if cliente else '' }}" />
+        </div>
+        <div class="col-12 d-flex justify-content-end gap-2 pt-2">
+          <a href="/admin/clientes" class="btn btn-outline-secondary">Cancelar</a>
+          <button type="submit" class="btn btn-brand">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -166,6 +166,109 @@ def test_dashboard_exibe_metricas_de_clientes_e_solicitacoes(monkeypatch, tmp_pa
         assert "Solicitações pendentes" in resposta.text
 
 
+def test_pagina_novo_cliente_lista_empresas(monkeypatch, tmp_path):
+    main, models = carregar_app(monkeypatch, tmp_path)
+
+    empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
+
+    with TestClient(main.app) as client:
+        _login_admin(client)
+
+        resposta = client.get(f"/admin/clientes/novo?empresa_id={empresa.id}")
+        assert resposta.status_code == 200
+        assert "Clínica A" in resposta.text
+
+
+def test_cadastro_manual_de_cliente(monkeypatch, tmp_path):
+    main, models = carregar_app(monkeypatch, tmp_path)
+
+    empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
+
+    with TestClient(main.app) as client:
+        _login_admin(client)
+
+        resposta = client.post(
+            "/admin/clientes/novo",
+            data={"empresa_id": str(empresa.id), "nome": "Maria Silva", "telefone": "(55) 11 90000-1234"},
+            follow_redirects=False,
+        )
+        assert resposta.status_code == 303
+        assert resposta.headers["location"].startswith("/admin/clientes/")
+
+        db = main.SessionLocal()
+        try:
+            cliente = db.query(models.ClienteFinal).filter_by(empresa_id=empresa.id).first()
+            assert cliente is not None
+            assert cliente.nome == "Maria Silva"
+            # telefone normalizado: apenas dígitos, sem formatação
+            assert cliente.telefone == "5511900001234"
+        finally:
+            db.close()
+
+        resposta_detalhe = client.get(resposta.headers["location"])
+        assert resposta_detalhe.status_code == 200
+        assert "Maria Silva" in resposta_detalhe.text
+        assert "Cliente cadastrado com sucesso" in resposta_detalhe.text
+
+
+def test_cadastro_manual_de_cliente_rejeita_telefone_vazio(monkeypatch, tmp_path):
+    main, models = carregar_app(monkeypatch, tmp_path)
+
+    empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
+
+    with TestClient(main.app) as client:
+        _login_admin(client)
+
+        resposta = client.post(
+            "/admin/clientes/novo",
+            data={"empresa_id": str(empresa.id), "nome": "Sem Telefone", "telefone": "abc"},
+            follow_redirects=False,
+        )
+        assert resposta.status_code == 400
+        assert "Informe um telefone válido" in resposta.text
+
+        db = main.SessionLocal()
+        try:
+            assert db.query(models.ClienteFinal).filter_by(empresa_id=empresa.id).count() == 0
+        finally:
+            db.close()
+
+
+def test_cadastro_manual_de_cliente_rejeita_telefone_duplicado_na_mesma_empresa(monkeypatch, tmp_path):
+    main, models = carregar_app(monkeypatch, tmp_path)
+
+    empresa_a = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
+    empresa_b = _seed_empresa(main, models, "clinica-b", "Clínica B", "5511999999992", "instancia-b")
+    _seed_cliente(main, models, empresa_a, "5511900000001", "Ana Souza", datetime(2026, 7, 1, 10, 0))
+
+    with TestClient(main.app) as client:
+        _login_admin(client)
+
+        # mesmo telefone, mesma empresa -> rejeitado
+        resposta = client.post(
+            "/admin/clientes/novo",
+            data={"empresa_id": str(empresa_a.id), "nome": "Outra Ana", "telefone": "5511900000001"},
+            follow_redirects=False,
+        )
+        assert resposta.status_code == 400
+        assert "Já existe um cliente com esse telefone" in resposta.text
+
+        # mesmo telefone, empresa diferente -> multi-tenant permite
+        resposta_outra_empresa = client.post(
+            "/admin/clientes/novo",
+            data={"empresa_id": str(empresa_b.id), "nome": "Ana em outra empresa", "telefone": "5511900000001"},
+            follow_redirects=False,
+        )
+        assert resposta_outra_empresa.status_code == 303
+
+        db = main.SessionLocal()
+        try:
+            assert db.query(models.ClienteFinal).filter_by(empresa_id=empresa_a.id).count() == 1
+            assert db.query(models.ClienteFinal).filter_by(empresa_id=empresa_b.id).count() == 1
+        finally:
+            db.close()
+
+
 def test_lista_agendamentos_linka_para_detalhe_do_cliente(monkeypatch, tmp_path):
     main, models = carregar_app(monkeypatch, tmp_path)
 

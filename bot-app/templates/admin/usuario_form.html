@@ -1,0 +1,59 @@
+{% extends 'admin/base.html' %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-xl-8">
+    <div class="panel-card p-3 p-lg-4">
+      <div class="mb-4">
+        <h1 class="section-title mb-1">{{ title }}</h1>
+        <p class="text-secondary mb-0">Admin tem acesso completo à empresa; operador cuida do dia a dia (agenda, clientes, atendimento) sem mexer em configurações, serviços ou outros usuários.</p>
+      </div>
+      <form method="post" action="{{ action_url }}" class="row g-3">
+        <div class="col-12">
+          <label class="form-label">Empresa</label>
+          <select name="empresa_id" class="form-select" required {% if not is_superadmin or usuario %}disabled{% endif %}>
+            <option value="">Selecione</option>
+            {% for empresa in empresas %}
+            <option value="{{ empresa.id }}" {% if selected_empresa_id == empresa.id %}selected{% endif %}>{{ empresa.nome }}</option>
+            {% endfor %}
+          </select>
+          {% if (not is_superadmin or usuario) and selected_empresa_id %}
+          <input type="hidden" name="empresa_id" value="{{ selected_empresa_id }}" />
+          {% endif %}
+          {% if usuario %}<div class="form-text">A empresa de um usuário não pode ser alterada após a criação.</div>{% endif %}
+        </div>
+        <div class="col-12 col-lg-6">
+          <label class="form-label">Nome</label>
+          <input type="text" name="nome" class="form-control" required value="{{ usuario.nome if usuario else '' }}" />
+        </div>
+        <div class="col-12 col-lg-6">
+          <label class="form-label">E-mail (login)</label>
+          <input type="email" name="email" class="form-control" required {% if usuario %}readonly{% endif %} value="{{ usuario.email if usuario else '' }}" />
+        </div>
+        <div class="col-12 col-lg-6">
+          <label class="form-label">Senha{% if usuario %} (deixe em branco para manter a atual){% endif %}</label>
+          <input type="password" name="senha" class="form-control" {% if not usuario %}required{% endif %} minlength="8" placeholder="Mínimo 8 caracteres" />
+        </div>
+        <div class="col-12 col-lg-6">
+          <label class="form-label">Papel</label>
+          <select name="papel" class="form-select">
+            <option value="operador" {% if usuario is none or usuario.papel == 'operador' %}selected{% endif %}>Operador</option>
+            <option value="admin" {% if usuario and usuario.papel == 'admin' %}selected{% endif %}>Admin</option>
+          </select>
+        </div>
+        {% if usuario %}
+        <div class="col-12 d-flex align-items-end">
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" name="ativo" id="ativo" {% if usuario.ativo %}checked{% endif %} />
+            <label class="form-check-label" for="ativo">Usuário ativo</label>
+          </div>
+        </div>
+        {% endif %}
+        <div class="col-12 d-flex justify-content-end gap-2 pt-2">
+          <a href="/admin/usuarios" class="btn btn-outline-secondary">Cancelar</a>
+          <button type="submit" class="btn btn-brand">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

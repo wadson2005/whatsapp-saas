@@ -105,7 +105,9 @@
           <div class="collapse navbar-collapse" id="navMenu">
             <ul class="navbar-nav me-auto mb-2 mb-lg-0">
               <li class="nav-item"><a class="nav-link {% if request.url.path.startswith('/admin/dashboard') %}active{% endif %}" href="/admin/dashboard">Dashboard</a></li>
+              {% if is_superadmin %}
               <li class="nav-item"><a class="nav-link {% if request.url.path.startswith('/admin/empresas') %}active{% endif %}" href="/admin/empresas">Empresas</a></li>
+              {% endif %}
               <li class="nav-item"><a class="nav-link {% if request.url.path.startswith('/admin/servicos') %}active{% endif %}" href="/admin/servicos">Serviços</a></li>
               <li class="nav-item"><a class="nav-link {% if request.url.path.startswith('/admin/conhecimento') %}active{% endif %}" href="/admin/conhecimento">Conhecimento</a></li>
               <li class="nav-item"><a class="nav-link {% if request.url.path == '/admin/clientes' or request.url.path.startswith('/admin/clientes/') %}active{% endif %}" href="/admin/clientes">Clientes</a></li>
@@ -113,7 +115,12 @@
               <li class="nav-item"><a class="nav-link {% if request.url.path.startswith('/admin/agendamentos') %}active{% endif %}" href="/admin/agendamentos">Agendamentos</a></li>
               <li class="nav-item"><a class="nav-link {% if request.url.path.startswith('/admin/solicitacoes-atendimento') %}active{% endif %}" href="/admin/solicitacoes-atendimento">Solicitações</a></li>
               <li class="nav-item"><a class="nav-link {% if request.url.path.startswith('/admin/insights') %}active{% endif %}" href="/admin/insights">Insights</a></li>
+              {% if is_superadmin or usuario_papel == 'admin' %}
+              <li class="nav-item"><a class="nav-link {% if request.url.path.startswith('/admin/usuarios') %}active{% endif %}" href="/admin/usuarios">Usuários</a></li>
+              {% endif %}
+              {% if is_superadmin %}
               <li class="nav-item"><a class="nav-link {% if request.url.path.startswith('/admin/configuracoes') %}active{% endif %}" href="/admin/configuracoes">Configurações</a></li>
+              {% endif %}
             </ul>
             <div class="d-flex align-items-center gap-3">
               {% if admin_username %}

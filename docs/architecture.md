@@ -108,6 +108,21 @@ Ficam de fora, de propósito:
 
 Campos sensíveis (token da Meta, chave de IA) usam `input type="password"` sempre vazio ao carregar a página; deixar em branco no submit mantém o valor atual, preencher substitui.
 
+## Autenticação e papéis no painel
+
+O painel tem dois tipos de login, resolvidos nessa ordem em `admin.login_submit`:
+
+1. **Superadmin da plataforma** — as credenciais de `ADMIN_USERNAME`/`ADMIN_PASSWORD` (`.env`), comparadas com `hmac.compare_digest`. Enxerga e edita todas as empresas, é o único que acessa `/admin/empresas` (criar/listar/desativar empresas) e `/admin/configuracoes` (configuração global do sistema — token da Meta, IA — que não é por empresa). Existe para nunca deixar a operação sem acesso, mesmo com a tabela de usuários vazia.
+2. **Usuário de uma empresa** (`usuarios_painel`) — `email` + senha (hash PBKDF2-HMAC-SHA256, `core/security.py`, sem dependência externa), com dois papéis:
+   - `admin`: acesso completo aos dados **da própria empresa** — serviços, conhecimento, clientes, agendamentos, configurações da empresa (`/admin/empresas/{id}/editar`) e gestão de outros usuários da mesma empresa (`/admin/usuarios`).
+   - `operador`: cobre o dia a dia (dashboard, clientes, agenda, atendimento, insights) mas não cria/edita/exclui serviços ou conhecimento, não gerencia usuários e não edita os dados da empresa.
+
+A sessão guarda `is_superadmin`, `usuario_empresa_id` e `usuario_papel`. Duas dependências do FastAPI leem isso: `require_superadmin` (bloqueia tudo que não seja o login da plataforma) e `require_papel_admin` (bloqueia apenas o papel `operador`; superadmin sempre passa).
+
+**Isolamento por empresa é aplicado uma única vez, não rota a rota.** `_query_empresa_id()` — já usada por quase toda rota de listagem/filtro para ler o `empresa_id` da query string — passou a checar primeiro a sessão: se o usuário está preso a uma empresa, o valor da sessão prevalece e o parâmetro da URL é ignorado. Isso faz o isolamento valer automaticamente em todas as rotas que já dependiam desse helper, sem precisar editar cada uma. Para rotas que carregam um recurso específico por id (`load_empresa`, `load_servico`, `load_cliente`, `load_agendamento`, `load_conhecimento`, `load_solicitacao`, `load_usuario` — todas em `admin.py`), a checagem entra no próprio loader: se o recurso pertence a outra empresa, a resposta é 404, não 403 — evita confirmar para um usuário escopado que um id de outra empresa existe.
+
+Formulários de criação/edição não confiam no `empresa_id` submetido quando a sessão está escopada (`_empresa_id_do_formulario`): mesmo que o campo do formulário seja adulterado, o valor usado é sempre o da sessão.
+
 ## Modelo de dados
 
 | Tabela | Papel |
@@ -120,6 +135,7 @@ Campos sensíveis (token da Meta, chave de IA) usam `input type="password"` semp
 | `empresa_conhecimento` | Perguntas e respostas cadastradas por empresa |
 | `conversas_iniciadas` | Log mínimo (empresa, telefone, data) usado só para métricas de conversão — o estado da conversa em si vive no Redis |
 | `configuracao_sistema` | Linha única (`id=1`) com as configurações operacionais editáveis pelo painel |
+| `usuarios_painel` | Login por empresa (`email` + senha com hash), com papel `admin` ou `operador` |
 
 O isolamento é multi-tenant por coluna `empresa_id` em todas as tabelas de negócio — a mesma base atende várias empresas sem misturar dados.
 
@@ -146,13 +162,14 @@ Os testes rodam contra SQLite (arquivo temporário por teste) e a produção con
 
 Decisões já tomadas:
 
-- Login do painel comparado com `hmac.compare_digest` (evita timing attack).
+- Login do superadmin comparado com `hmac.compare_digest` (evita timing attack); senha de usuários por empresa com hash PBKDF2-HMAC-SHA256 e salt aleatório (`core/security.py`), nunca texto puro.
+- Papéis e permissões por empresa (`admin`/`operador`) com isolamento de dados por `empresa_id` reforçado no carregamento de cada recurso, não só no filtro de listagem (ver seção "Autenticação e papéis no painel").
 - Bancos e Redis não ficam abertos para a internet — o reverse proxy centraliza a entrada pública.
 - O estado da conversa expira automaticamente no Redis.
 - `ADMIN_PASSWORD` e `SESSION_SECRET_KEY` são validados na inicialização (rejeita valores fracos ou placeholders do `.env.example`).
 
 Pontos ainda em aberto:
 
-- Criptografia em repouso para segredos guardados no banco (token da Meta, chave de IA) — hoje ficam em texto puro, como a senha do admin.
+- Criptografia em repouso para segredos guardados no banco (token da Meta, chave de IA) — hoje ficam em texto puro.
 - Validação/renovação automática de token da Meta.
-- Papéis e permissões no painel (hoje é um único usuário admin).
+- Criação do primeiro usuário de uma empresa integrada ao onboarding público — hoje precisa ser cadastrada manualmente em `/admin/usuarios`.

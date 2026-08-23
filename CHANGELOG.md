@@ -4,6 +4,15 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ## [Unreleased]
 
+### Adicionado
+
+- Papéis e permissões no painel administrativo: cada empresa cliente pode ter usuários próprios (tabela `usuarios_painel`, senha com hash PBKDF2), com papel `admin` (acesso completo à própria empresa, inclusive gestão de outros usuários) ou `operador` (dia a dia — agenda, clientes, atendimento — sem exclusões, configurações ou gestão de usuários). O login único do `.env` (`ADMIN_USERNAME`/`ADMIN_PASSWORD`) passa a ser o superadmin de bootstrap, com acesso a todas as empresas. Nova tela `/admin/usuarios`; `/admin/empresas` e `/admin/configuracoes` (config global do sistema) ficam restritas ao superadmin. Corrige de passagem dois pontos que confiavam sem validar em `empresa_id` vindo de query/form nas rotas de atualização de status de agendamento e de solicitação de atendimento.
+- Cadastro manual de cliente final direto pelo painel (`/admin/clientes/novo`), sem depender do cliente iniciar a conversa pelo WhatsApp. Telefone é normalizado (apenas dígitos) e validado contra duplicidade por empresa.
+
+### Corrigido
+
+- `tests/test_lembretes.py::test_reagendamento_reseta_lembrete_enviado_em` usava uma data hardcoded que expirou; passou a calcular a próxima segunda-feira dinamicamente.
+
 ### Alterado
 
 - Reorganizado `bot-app/` em pacotes por responsabilidade: `core/` (config, banco, modelos, schema, redis), `services/` (regras de negócio), `integrations/` (clientes de APIs externas) e `scripts/` (utilitários de linha de comando).

@@ -77,6 +77,21 @@ class ClienteFinal(Base):
     agendamentos = relationship("Agendamento", back_populates="cliente_final")
 
 
+class UsuarioPainel(Base):
+    __tablename__ = "usuarios_painel"
+
+    id = Column(Integer, primary_key=True)
+    empresa_id = Column(Integer, ForeignKey("empresas.id"), nullable=False)
+    nome = Column(String, nullable=False)
+    email = Column(String, unique=True, nullable=False)
+    senha_hash = Column(String, nullable=False)
+    papel = Column(String, nullable=False, default="operador")
+    ativo = Column(Boolean, default=True)
+    criado_em = Column(DateTime, default=datetime.utcnow)
+
+    empresa = relationship("Empresa")
+
+
 class SolicitacaoAtendimento(Base):
     __tablename__ = "solicitacoes_atendimento"
 

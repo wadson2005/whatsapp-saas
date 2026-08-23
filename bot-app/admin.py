@@ -1,4 +1,5 @@
 import hmac
+import re
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,11 +14,19 @@ from starlette.templating import Jinja2Templates
 
 from core.config import settings
 from core.database import get_db
-from core.models import Agendamento, ClienteFinal, Empresa, EmpresaConhecimento, Servico, SolicitacaoAtendimento
+from core.models import Agendamento, ClienteFinal, Empresa, EmpresaConhecimento, Servico, SolicitacaoAtendimento, UsuarioPainel
 from services.atendimento_humano import STATUS_EM_ATENDIMENTO, STATUS_FINALIZADO, STATUS_PENDENTE, atualizar_status_solicitacao_atendimento
 from services.conhecimento import atualizar_conhecimento, criar_conhecimento, excluir_conhecimento, listar_conhecimento
 from services.configuracoes import atualizar_configuracao, obter_configuracao
 from services.metricas import calcular_metricas, gerar_insights, listar_clientes_inativos
+from services.usuarios import (
+    PAPEL_ADMIN,
+    PAPEL_OPERADOR,
+    atualizar_usuario,
+    autenticar_usuario,
+    criar_usuario,
+    listar_usuarios,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -39,10 +48,28 @@ def require_admin(request: Request) -> None:
         raise AdminAuthRequired()
 
 
+def require_superadmin(request: Request) -> None:
+    """Restringe a rotas de operação da plataforma (todas as empresas, config global)."""
+    require_admin(request)
+    if not request.session.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="acesso_restrito_ao_superadmin")
+
+
+def require_papel_admin(request: Request) -> None:
+    """Bloqueia o papel 'operador'; superadmin e papel 'admin' passam."""
+    require_admin(request)
+    if request.session.get("is_superadmin"):
+        return
+    if request.session.get("usuario_papel") != PAPEL_ADMIN:
+        raise HTTPException(status_code=403, detail="acao_restrita_ao_papel_admin")
+
+
 def page_context(request: Request, **kwargs):
     contexto = {
         "request": request,
         "admin_username": request.session.get("admin_username"),
+        "is_superadmin": bool(request.session.get("is_superadmin")),
+        "usuario_papel": request.session.get("usuario_papel"),
         "message": request.query_params.get("message"),
         "error": request.query_params.get("error"),
     }
@@ -80,21 +107,61 @@ def parse_optional_str(value):
     return texto or None
 
 
+def _normalizar_telefone(telefone: str | None) -> str:
+    return re.sub(r"\D", "", telefone or "")
+
+
+def _sessao_empresa_id(request: Request) -> int | None:
+    """Empresa à qual a sessão está restrita, ou None para superadmin (acesso a todas)."""
+    return request.session.get("usuario_empresa_id")
+
+
 def _query_empresa_id(request: Request):
+    """Empresa efetiva da requisição: forçada pela sessão quando escopada, senão o filtro da query string."""
+    escopo = _sessao_empresa_id(request)
+    if escopo is not None:
+        return escopo
     valor = request.query_params.get("empresa_id")
     if valor in {None, ""}:
         return None
     return int(valor)
 
 
-def _base_empresa_contexto(db, empresa_id: int | None):
+def _empresa_id_do_formulario(request: Request, form) -> int:
+    """Como `_query_empresa_id`, mas para o valor submetido em formulários de criação/edição."""
+    escopo = _sessao_empresa_id(request)
+    if escopo is not None:
+        return escopo
+    return int(form.get("empresa_id"))
+
+
+def _empresas_visiveis(db, request: Request):
+    """Lista de empresas para seletores/dropdowns: só a própria quando a sessão é escopada."""
+    escopo = _sessao_empresa_id(request)
+    if escopo is not None:
+        empresa = db.query(Empresa).filter_by(id=escopo).first()
+        return [empresa] if empresa else []
+    return db.query(Empresa).order_by(Empresa.nome.asc()).all()
+
+
+def _base_empresa_contexto(db, request: Request, empresa_id: int | None):
+    escopo = _sessao_empresa_id(request)
+    if escopo is not None:
+        empresa = db.query(Empresa).filter_by(id=escopo).first()
+        return ([empresa] if empresa else []), empresa
+
     empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
-    empresa = None
-    if empresa_id:
-        empresa = db.query(Empresa).filter_by(id=empresa_id).first()
-    elif len(empresas) == 1:
+    empresa = db.query(Empresa).filter_by(id=empresa_id).first() if empresa_id else None
+    if empresa is None and len(empresas) == 1:
         empresa = empresas[0]
     return empresas, empresa
+
+
+def _assert_acesso_empresa(request: Request, empresa_id_recurso: int | None) -> None:
+    """Levanta 404 se o recurso pertence a outra empresa que não a da sessão escopada."""
+    escopo = _sessao_empresa_id(request)
+    if escopo is not None and empresa_id_recurso != escopo:
+        raise HTTPException(status_code=404, detail="recurso_nao_encontrado")
 
 
 def _empresa_query_ids(empresa_id: int | None):
@@ -160,39 +227,60 @@ def form_namespace(form, **overrides):
     return SimpleNamespace(**dados)
 
 
-def load_empresa(db, empresa_id: int):
+def load_empresa(db, request: Request, empresa_id: int):
     empresa = db.query(Empresa).filter(Empresa.id == empresa_id).first()
     if not empresa:
         raise HTTPException(status_code=404, detail="empresa_nao_encontrada")
+    _assert_acesso_empresa(request, empresa.id)
     return empresa
 
 
-def load_servico(db, servico_id: int):
+def load_servico(db, request: Request, servico_id: int):
     servico = db.query(Servico).filter(Servico.id == servico_id).first()
     if not servico:
         raise HTTPException(status_code=404, detail="servico_nao_encontrado")
+    _assert_acesso_empresa(request, servico.empresa_id)
     return servico
 
 
-def load_cliente(db, cliente_id: int):
+def load_cliente(db, request: Request, cliente_id: int):
     cliente = db.query(ClienteFinal).filter(ClienteFinal.id == cliente_id).first()
     if not cliente:
         raise HTTPException(status_code=404, detail="cliente_nao_encontrado")
+    _assert_acesso_empresa(request, cliente.empresa_id)
     return cliente
 
 
-def load_agendamento(db, agendamento_id: int):
+def load_agendamento(db, request: Request, agendamento_id: int):
     agendamento = db.query(Agendamento).filter(Agendamento.id == agendamento_id).first()
     if not agendamento:
         raise HTTPException(status_code=404, detail="agendamento_nao_encontrado")
+    _assert_acesso_empresa(request, agendamento.empresa_id)
     return agendamento
 
 
-def load_conhecimento(db, conhecimento_id: int):
+def load_conhecimento(db, request: Request, conhecimento_id: int):
     entrada = db.query(EmpresaConhecimento).filter(EmpresaConhecimento.id == conhecimento_id).first()
     if not entrada:
         raise HTTPException(status_code=404, detail="conhecimento_nao_encontrado")
+    _assert_acesso_empresa(request, entrada.empresa_id)
     return entrada
+
+
+def load_solicitacao(db, request: Request, solicitacao_id: int):
+    solicitacao = db.query(SolicitacaoAtendimento).filter(SolicitacaoAtendimento.id == solicitacao_id).first()
+    if not solicitacao:
+        raise HTTPException(status_code=404, detail="solicitacao_nao_encontrada")
+    _assert_acesso_empresa(request, solicitacao.empresa_id)
+    return solicitacao
+
+
+def load_usuario(db, request: Request, usuario_id: int):
+    usuario = db.query(UsuarioPainel).filter(UsuarioPainel.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="usuario_nao_encontrado")
+    _assert_acesso_empresa(request, usuario.empresa_id)
+    return usuario
 
 
 def _aplicar_dados_empresa(empresa: Empresa, dados: SimpleNamespace):
@@ -258,25 +346,39 @@ async def login_page(request: Request):
 
 
 @admin_app.post("/login")
-async def login_submit(request: Request):
+async def login_submit(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
     username = (form.get("username") or "").strip()
     password = form.get("password") or ""
 
-    credenciais_validas = hmac.compare_digest(username, settings.admin_username) and hmac.compare_digest(
+    superadmin_valido = hmac.compare_digest(username, settings.admin_username) and hmac.compare_digest(
         password, settings.admin_password
     )
-    if not credenciais_validas:
-        return templates.TemplateResponse(
-            request,
-            "admin/login.html",
-            page_context(request, title="Entrar", error="Usuário ou senha inválidos."),
-            status_code=401,
-        )
+    if superadmin_valido:
+        request.session["admin_authenticated"] = True
+        request.session["admin_username"] = username
+        request.session["is_superadmin"] = True
+        request.session["usuario_id"] = None
+        request.session["usuario_empresa_id"] = None
+        request.session["usuario_papel"] = None
+        return RedirectResponse(url="/admin/dashboard", status_code=303)
 
-    request.session["admin_authenticated"] = True
-    request.session["admin_username"] = username
-    return RedirectResponse(url="/admin/dashboard", status_code=303)
+    usuario = autenticar_usuario(db, username, password)
+    if usuario:
+        request.session["admin_authenticated"] = True
+        request.session["admin_username"] = usuario.nome or usuario.email
+        request.session["is_superadmin"] = False
+        request.session["usuario_id"] = usuario.id
+        request.session["usuario_empresa_id"] = usuario.empresa_id
+        request.session["usuario_papel"] = usuario.papel
+        return RedirectResponse(url="/admin/dashboard", status_code=303)
+
+    return templates.TemplateResponse(
+        request,
+        "admin/login.html",
+        page_context(request, title="Entrar", error="Usuário ou senha inválidos."),
+        status_code=401,
+    )
 
 
 @admin_app.get("/logout")
@@ -310,11 +412,14 @@ async def dashboard(request: Request, db: Session = Depends(get_db), _: None = D
     empresa_id = _query_empresa_id(request)
     data_inicio, data_fim = _periodo_dashboard(request)
 
-    empresas, empresa = _base_empresa_contexto(db, empresa_id)
+    empresas, empresa = _base_empresa_contexto(db, request, empresa_id)
     metricas_periodo = calcular_metricas(db, empresa_id, data_inicio, data_fim)
 
-    total_empresas = db.query(func.count(Empresa.id)).scalar() or 0
-    empresas_ativas = db.query(func.count(Empresa.id)).filter(Empresa.ativo.is_(True)).scalar() or 0
+    total_empresas = None
+    empresas_ativas = None
+    if request.session.get("is_superadmin"):
+        total_empresas = db.query(func.count(Empresa.id)).scalar() or 0
+        empresas_ativas = db.query(func.count(Empresa.id)).filter(Empresa.ativo.is_(True)).scalar() or 0
     total_clientes = db.query(func.count(ClienteFinal.id)).filter(*([ClienteFinal.empresa_id == empresa_id] if empresa_id else [])).scalar() or 0
     total_servicos = db.query(func.count(Servico.id)).filter(Servico.excluido_em.is_(None), *([Servico.empresa_id == empresa_id] if empresa_id else [])).scalar() or 0
     total_agendamentos = db.query(func.count(Agendamento.id)).filter(*([Agendamento.empresa_id == empresa_id] if empresa_id else [])).scalar() or 0
@@ -382,7 +487,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db), _: None = D
 
 
 @admin_app.get("/empresas", response_class=HTMLResponse)
-async def empresas_list(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+async def empresas_list(request: Request, db: Session = Depends(get_db), _: None = Depends(require_superadmin)):
     empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
     servicos_count = dict(
         db.query(Servico.empresa_id, func.count(Servico.id))
@@ -409,7 +514,7 @@ async def empresas_list(request: Request, db: Session = Depends(get_db), _: None
 
 
 @admin_app.get("/empresas/nova", response_class=HTMLResponse)
-async def empresa_new_page(request: Request, _: None = Depends(require_admin)):
+async def empresa_new_page(request: Request, _: None = Depends(require_superadmin)):
     return templates.TemplateResponse(
         request,
         "admin/empresa_form.html",
@@ -418,7 +523,7 @@ async def empresa_new_page(request: Request, _: None = Depends(require_admin)):
 
 
 @admin_app.post("/empresas/nova")
-async def empresa_new_submit(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+async def empresa_new_submit(request: Request, db: Session = Depends(get_db), _: None = Depends(require_superadmin)):
     form = await request.form()
     try:
         dados = form_namespace(form)
@@ -445,8 +550,8 @@ async def empresa_new_submit(request: Request, db: Session = Depends(get_db), _:
 
 
 @admin_app.get("/empresas/{empresa_id}/editar", response_class=HTMLResponse)
-async def empresa_edit_page(request: Request, empresa_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    empresa = load_empresa(db, empresa_id)
+async def empresa_edit_page(request: Request, empresa_id: int, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    empresa = load_empresa(db, request, empresa_id)
 
     return templates.TemplateResponse(
         request,
@@ -461,15 +566,15 @@ async def empresa_edit_page(request: Request, empresa_id: int, db: Session = Dep
 
 
 @admin_app.post("/empresas/{empresa_id}/editar")
-async def empresa_edit_submit(request: Request, empresa_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+async def empresa_edit_submit(request: Request, empresa_id: int, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
     form = await request.form()
     try:
-        empresa = load_empresa(db, empresa_id)
+        empresa = load_empresa(db, request, empresa_id)
         _aplicar_dados_empresa(empresa, form_namespace(form, empresa_id=empresa_id))
         db.commit()
     except IntegrityError:
         db.rollback()
-        empresa = load_empresa(db, empresa_id)
+        empresa = load_empresa(db, request, empresa_id)
         return templates.TemplateResponse(
             request,
             "admin/empresa_form.html",
@@ -487,8 +592,8 @@ async def empresa_edit_submit(request: Request, empresa_id: int, db: Session = D
 
 
 @admin_app.post("/empresas/{empresa_id}/toggle")
-async def empresa_toggle(request: Request, empresa_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    empresa = load_empresa(db, empresa_id)
+async def empresa_toggle(request: Request, empresa_id: int, db: Session = Depends(get_db), _: None = Depends(require_superadmin)):
+    empresa = load_empresa(db, request, empresa_id)
     empresa.ativo = not empresa.ativo
     db.commit()
 
@@ -497,8 +602,8 @@ async def empresa_toggle(request: Request, empresa_id: int, db: Session = Depend
 
 @admin_app.get("/servicos", response_class=HTMLResponse)
 async def servicos_list(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    empresa_id = request.query_params.get("empresa_id")
-    empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
+    empresa_id = _query_empresa_id(request)
+    empresas = _empresas_visiveis(db, request)
     query = (
         db.query(Servico)
         .options(joinedload(Servico.empresa))
@@ -506,7 +611,7 @@ async def servicos_list(request: Request, db: Session = Depends(get_db), _: None
         .order_by(Servico.ordem_exibicao.asc(), Servico.nome.asc())
     )
     if empresa_id:
-        query = query.filter(Servico.empresa_id == int(empresa_id))
+        query = query.filter(Servico.empresa_id == empresa_id)
     servicos = query.all()
 
     return templates.TemplateResponse(
@@ -517,15 +622,15 @@ async def servicos_list(request: Request, db: Session = Depends(get_db), _: None
             title="Serviços",
             empresas=empresas,
             servicos=servicos,
-            selected_empresa_id=int(empresa_id) if empresa_id else None,
+            selected_empresa_id=empresa_id,
         ),
     )
 
 
 @admin_app.get("/servicos/novo", response_class=HTMLResponse)
-async def servico_new_page(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    empresa_id = request.query_params.get("empresa_id")
-    empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
+async def servico_new_page(request: Request, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    empresa_id = _query_empresa_id(request)
+    empresas = _empresas_visiveis(db, request)
 
     return templates.TemplateResponse(
         request,
@@ -535,17 +640,17 @@ async def servico_new_page(request: Request, db: Session = Depends(get_db), _: N
             title="Novo serviço",
             empresas=empresas,
             servico=None,
-            selected_empresa_id=int(empresa_id) if empresa_id else None,
+            selected_empresa_id=empresa_id,
             action_url="/admin/servicos/novo",
         ),
     )
 
 
 @admin_app.post("/servicos/novo")
-async def servico_new_submit(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+async def servico_new_submit(request: Request, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
     form = await request.form()
-    empresa_id = int(form.get("empresa_id"))
-    load_empresa(db, empresa_id)
+    empresa_id = _empresa_id_do_formulario(request, form)
+    load_empresa(db, request, empresa_id)
     dados = form_namespace(form, empresa_id=empresa_id)
     servico = Servico()
     _aplicar_dados_servico(servico, dados)
@@ -556,9 +661,9 @@ async def servico_new_submit(request: Request, db: Session = Depends(get_db), _:
 
 
 @admin_app.get("/servicos/{servico_id}/editar", response_class=HTMLResponse)
-async def servico_edit_page(request: Request, servico_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
-    servico = load_servico(db, servico_id)
+async def servico_edit_page(request: Request, servico_id: int, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    empresas = _empresas_visiveis(db, request)
+    servico = load_servico(db, request, servico_id)
 
     return templates.TemplateResponse(
         request,
@@ -575,11 +680,11 @@ async def servico_edit_page(request: Request, servico_id: int, db: Session = Dep
 
 
 @admin_app.post("/servicos/{servico_id}/editar")
-async def servico_edit_submit(request: Request, servico_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+async def servico_edit_submit(request: Request, servico_id: int, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
     form = await request.form()
-    empresa_id = int(form.get("empresa_id"))
-    servico = load_servico(db, servico_id)
-    load_empresa(db, empresa_id)
+    servico = load_servico(db, request, servico_id)
+    empresa_id = _empresa_id_do_formulario(request, form)
+    load_empresa(db, request, empresa_id)
     _aplicar_dados_servico(servico, form_namespace(form, empresa_id=empresa_id))
     db.commit()
 
@@ -587,8 +692,8 @@ async def servico_edit_submit(request: Request, servico_id: int, db: Session = D
 
 
 @admin_app.post("/servicos/{servico_id}/toggle")
-async def servico_toggle(request: Request, servico_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    servico = load_servico(db, servico_id)
+async def servico_toggle(request: Request, servico_id: int, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    servico = load_servico(db, request, servico_id)
     servico.ativo = not servico.ativo
     db.commit()
     empresa_id = servico.empresa_id
@@ -597,8 +702,8 @@ async def servico_toggle(request: Request, servico_id: int, db: Session = Depend
 
 
 @admin_app.post("/servicos/{servico_id}/excluir")
-async def servico_delete(request: Request, servico_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    servico = load_servico(db, servico_id)
+async def servico_delete(request: Request, servico_id: int, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    servico = load_servico(db, request, servico_id)
     servico.ativo = False
     servico.excluido_em = datetime.utcnow()
     empresa_id = servico.empresa_id
@@ -609,9 +714,9 @@ async def servico_delete(request: Request, servico_id: int, db: Session = Depend
 
 @admin_app.get("/conhecimento", response_class=HTMLResponse)
 async def conhecimento_list(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    empresa_id = request.query_params.get("empresa_id")
-    empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
-    entradas = listar_conhecimento(db, int(empresa_id) if empresa_id else None)
+    empresa_id = _query_empresa_id(request)
+    empresas = _empresas_visiveis(db, request)
+    entradas = listar_conhecimento(db, empresa_id)
 
     return templates.TemplateResponse(
         request,
@@ -621,15 +726,15 @@ async def conhecimento_list(request: Request, db: Session = Depends(get_db), _: 
             title="Base de conhecimento",
             empresas=empresas,
             entradas=entradas,
-            selected_empresa_id=int(empresa_id) if empresa_id else None,
+            selected_empresa_id=empresa_id,
         ),
     )
 
 
 @admin_app.get("/conhecimento/novo", response_class=HTMLResponse)
-async def conhecimento_new_page(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    empresa_id = request.query_params.get("empresa_id")
-    empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
+async def conhecimento_new_page(request: Request, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    empresa_id = _query_empresa_id(request)
+    empresas = _empresas_visiveis(db, request)
 
     return templates.TemplateResponse(
         request,
@@ -639,17 +744,17 @@ async def conhecimento_new_page(request: Request, db: Session = Depends(get_db),
             title="Nova pergunta",
             empresas=empresas,
             entrada=None,
-            selected_empresa_id=int(empresa_id) if empresa_id else None,
+            selected_empresa_id=empresa_id,
             action_url="/admin/conhecimento/novo",
         ),
     )
 
 
 @admin_app.post("/conhecimento/novo")
-async def conhecimento_new_submit(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+async def conhecimento_new_submit(request: Request, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
     form = await request.form()
-    empresa_id = int(form.get("empresa_id"))
-    load_empresa(db, empresa_id)
+    empresa_id = _empresa_id_do_formulario(request, form)
+    load_empresa(db, request, empresa_id)
     criar_conhecimento(
         db,
         empresa_id=empresa_id,
@@ -663,9 +768,9 @@ async def conhecimento_new_submit(request: Request, db: Session = Depends(get_db
 
 
 @admin_app.get("/conhecimento/{conhecimento_id}/editar", response_class=HTMLResponse)
-async def conhecimento_edit_page(request: Request, conhecimento_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
-    entrada = load_conhecimento(db, conhecimento_id)
+async def conhecimento_edit_page(request: Request, conhecimento_id: int, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    empresas = _empresas_visiveis(db, request)
+    entrada = load_conhecimento(db, request, conhecimento_id)
 
     return templates.TemplateResponse(
         request,
@@ -682,11 +787,11 @@ async def conhecimento_edit_page(request: Request, conhecimento_id: int, db: Ses
 
 
 @admin_app.post("/conhecimento/{conhecimento_id}/editar")
-async def conhecimento_edit_submit(request: Request, conhecimento_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+async def conhecimento_edit_submit(request: Request, conhecimento_id: int, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
     form = await request.form()
-    empresa_id = int(form.get("empresa_id"))
-    entrada = load_conhecimento(db, conhecimento_id)
-    load_empresa(db, empresa_id)
+    entrada = load_conhecimento(db, request, conhecimento_id)
+    empresa_id = _empresa_id_do_formulario(request, form)
+    load_empresa(db, request, empresa_id)
     atualizar_conhecimento(
         entrada,
         categoria=parse_optional_str(form.get("categoria")),
@@ -700,8 +805,8 @@ async def conhecimento_edit_submit(request: Request, conhecimento_id: int, db: S
 
 
 @admin_app.post("/conhecimento/{conhecimento_id}/toggle")
-async def conhecimento_toggle(request: Request, conhecimento_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    entrada = load_conhecimento(db, conhecimento_id)
+async def conhecimento_toggle(request: Request, conhecimento_id: int, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    entrada = load_conhecimento(db, request, conhecimento_id)
     entrada.ativo = not entrada.ativo
     db.commit()
     empresa_id = entrada.empresa_id
@@ -710,8 +815,8 @@ async def conhecimento_toggle(request: Request, conhecimento_id: int, db: Sessio
 
 
 @admin_app.post("/conhecimento/{conhecimento_id}/excluir")
-async def conhecimento_delete(request: Request, conhecimento_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    entrada = load_conhecimento(db, conhecimento_id)
+async def conhecimento_delete(request: Request, conhecimento_id: int, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    entrada = load_conhecimento(db, request, conhecimento_id)
     excluir_conhecimento(entrada)
     empresa_id = entrada.empresa_id
     db.commit()
@@ -727,7 +832,7 @@ async def agendamentos_list(request: Request, db: Session = Depends(get_db), _: 
     servico_id = request.query_params.get("servico_id")
     cliente_id = request.query_params.get("cliente_id")
 
-    empresas, empresa = _base_empresa_contexto(db, empresa_id)
+    empresas, empresa = _base_empresa_contexto(db, request, empresa_id)
     servicos = (
         db.query(Servico)
         .filter(Servico.excluido_em.is_(None), *([Servico.empresa_id == empresa_id] if empresa_id else []))
@@ -809,13 +914,7 @@ async def agendamento_status_submit(request: Request, agendamento_id: int, db: S
     if not _agendamento_status_permitido(status):
         raise HTTPException(status_code=400, detail="status_invalido")
 
-    empresa_id = request.query_params.get("empresa_id") or form.get("empresa_id")
-    query = db.query(Agendamento).filter_by(id=agendamento_id)
-    if empresa_id:
-        query = query.filter(Agendamento.empresa_id == int(empresa_id))
-    agendamento = query.first()
-    if not agendamento:
-        raise HTTPException(status_code=404, detail="agendamento_nao_encontrado")
+    agendamento = load_agendamento(db, request, agendamento_id)
 
     agendamento.status = status
     if status == "cancelado":
@@ -832,7 +931,7 @@ async def clientes_list(request: Request, db: Session = Depends(get_db), _: None
     q = (request.query_params.get("q") or "").strip()
     sort = (request.query_params.get("sort") or "recente").strip()
 
-    empresas, empresa = _base_empresa_contexto(db, empresa_id)
+    empresas, empresa = _base_empresa_contexto(db, request, empresa_id)
     query = (
         db.query(
             ClienteFinal,
@@ -889,14 +988,72 @@ async def clientes_list(request: Request, db: Session = Depends(get_db), _: None
     )
 
 
+@admin_app.get("/clientes/novo", response_class=HTMLResponse)
+async def cliente_new_page(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+    empresa_id = _query_empresa_id(request)
+    empresas, empresa = _base_empresa_contexto(db, request, empresa_id)
+
+    return templates.TemplateResponse(
+        request,
+        "admin/cliente_form.html",
+        page_context(
+            request,
+            title="Novo cliente",
+            empresas=empresas,
+            cliente=None,
+            selected_empresa_id=empresa.id if empresa else empresa_id,
+            action_url="/admin/clientes/novo",
+        ),
+    )
+
+
+@admin_app.post("/clientes/novo")
+async def cliente_new_submit(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+    form = await request.form()
+    empresa_id = _empresa_id_do_formulario(request, form)
+    empresa = load_empresa(db, request, empresa_id)
+    nome = parse_optional_str(form.get("nome"))
+    telefone = _normalizar_telefone(form.get("telefone"))
+
+    erro = None
+    if not telefone:
+        erro = "Informe um telefone válido."
+    elif db.query(ClienteFinal).filter_by(empresa_id=empresa.id, telefone=telefone).first():
+        erro = "Já existe um cliente com esse telefone para essa empresa."
+
+    if erro:
+        empresas, _ = _base_empresa_contexto(db, request, empresa_id)
+        return templates.TemplateResponse(
+            request,
+            "admin/cliente_form.html",
+            page_context(
+                request,
+                title="Novo cliente",
+                empresas=empresas,
+                cliente=SimpleNamespace(nome=nome, telefone=form.get("telefone") or ""),
+                selected_empresa_id=empresa_id,
+                action_url="/admin/clientes/novo",
+                error=erro,
+            ),
+            status_code=400,
+        )
+
+    cliente = ClienteFinal(empresa_id=empresa.id, telefone=telefone, nome=nome)
+    db.add(cliente)
+    db.commit()
+    db.refresh(cliente)
+
+    return RedirectResponse(url=f"/admin/clientes/{cliente.id}?message=Cliente cadastrado com sucesso.", status_code=303)
+
+
 @admin_app.get("/clientes/{cliente_id}", response_class=HTMLResponse)
 async def cliente_detail(request: Request, cliente_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    empresa_id = _query_empresa_id(request)
-    cliente = load_cliente(db, cliente_id)
-    if empresa_id and cliente.empresa_id != empresa_id:
+    cliente = load_cliente(db, request, cliente_id)
+    filtro_empresa_id = _query_empresa_id(request)
+    if filtro_empresa_id and cliente.empresa_id != filtro_empresa_id:
         raise HTTPException(status_code=404, detail="cliente_nao_encontrado")
 
-    empresa = load_empresa(db, cliente.empresa_id)
+    empresa = load_empresa(db, request, cliente.empresa_id)
     agendamentos = (
         db.query(Agendamento)
         .options(joinedload(Agendamento.servico))
@@ -927,13 +1084,10 @@ async def cliente_detail(request: Request, cliente_id: int, db: Session = Depend
 
 @admin_app.get("/solicitacoes-atendimento", response_class=HTMLResponse)
 async def solicitacoes_atendimento_list(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    empresa_id = request.query_params.get("empresa_id")
-    if empresa_id == "":
-        empresa_id = None
-
-    empresas = db.query(Empresa).order_by(Empresa.nome.asc()).all()
+    empresa_id = _query_empresa_id(request)
+    empresas = _empresas_visiveis(db, request)
     if not empresa_id and len(empresas) == 1:
-        empresa_id = str(empresas[0].id)
+        empresa_id = empresas[0].id
 
     registros = []
     if empresa_id:
@@ -946,7 +1100,7 @@ async def solicitacoes_atendimento_list(request: Request, db: Session = Depends(
             )
             .join(Empresa, SolicitacaoAtendimento.empresa_id == Empresa.id)
             .outerjoin(ClienteFinal, SolicitacaoAtendimento.cliente_id == ClienteFinal.id)
-            .filter(SolicitacaoAtendimento.empresa_id == int(empresa_id))
+            .filter(SolicitacaoAtendimento.empresa_id == empresa_id)
             .filter(SolicitacaoAtendimento.status == STATUS_PENDENTE)
             .order_by(SolicitacaoAtendimento.criado_em.desc(), SolicitacaoAtendimento.id.desc())
         )
@@ -976,7 +1130,7 @@ async def solicitacoes_atendimento_list(request: Request, db: Session = Depends(
             title="Solicitações de Atendimento",
             empresas=empresas,
             solicitacoes=solicitacoes,
-            selected_empresa_id=int(empresa_id) if empresa_id else None,
+            selected_empresa_id=empresa_id,
         ),
     )
 
@@ -984,25 +1138,17 @@ async def solicitacoes_atendimento_list(request: Request, db: Session = Depends(
 @admin_app.post("/solicitacoes-atendimento/{solicitacao_id}/status")
 async def solicitacao_atendimento_status_submit(request: Request, solicitacao_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     form = await request.form()
-    empresa_id = request.query_params.get("empresa_id") or form.get("empresa_id")
     status = (form.get("status") or "").strip()
 
     if status not in {STATUS_EM_ATENDIMENTO, STATUS_FINALIZADO}:
         raise HTTPException(status_code=400, detail="status_invalido")
 
-    query = db.query(SolicitacaoAtendimento).filter_by(id=solicitacao_id)
-    if empresa_id:
-        query = query.filter(SolicitacaoAtendimento.empresa_id == int(empresa_id))
-
-    solicitacao = query.first()
-    if not solicitacao:
-        raise HTTPException(status_code=404, detail="solicitacao_nao_encontrada")
-
+    solicitacao = load_solicitacao(db, request, solicitacao_id)
     atualizar_status_solicitacao_atendimento(db, solicitacao, status)
 
     mensagem = "Solicitação atualizada com sucesso."
     return RedirectResponse(
-        url=f"/admin/solicitacoes-atendimento?empresa_id={empresa_id or solicitacao.empresa_id}&message={mensagem}",
+        url=f"/admin/solicitacoes-atendimento?empresa_id={solicitacao.empresa_id}&message={mensagem}",
         status_code=303,
     )
 
@@ -1010,7 +1156,7 @@ async def solicitacao_atendimento_status_submit(request: Request, solicitacao_id
 @admin_app.get("/insights", response_class=HTMLResponse)
 async def insights_page(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     empresa_id = _query_empresa_id(request)
-    empresas, empresa = _base_empresa_contexto(db, empresa_id)
+    empresas, empresa = _base_empresa_contexto(db, request, empresa_id)
     frases = gerar_insights(db, empresa.id if empresa else empresa_id)
 
     return templates.TemplateResponse(
@@ -1039,7 +1185,7 @@ async def clientes_inativos_page(request: Request, db: Session = Depends(get_db)
     if dias not in DIAS_INATIVIDADE_PERMITIDOS:
         dias = 90
 
-    empresas, empresa = _base_empresa_contexto(db, empresa_id)
+    empresas, empresa = _base_empresa_contexto(db, request, empresa_id)
     clientes = listar_clientes_inativos(db, empresa.id if empresa else empresa_id, dias)
 
     return templates.TemplateResponse(
@@ -1058,7 +1204,7 @@ async def clientes_inativos_page(request: Request, db: Session = Depends(get_db)
 
 
 @admin_app.get("/configuracoes", response_class=HTMLResponse)
-async def configuracoes_page(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+async def configuracoes_page(request: Request, db: Session = Depends(get_db), _: None = Depends(require_superadmin)):
     config = obter_configuracao(db)
 
     return templates.TemplateResponse(
@@ -1075,7 +1221,7 @@ async def configuracoes_page(request: Request, db: Session = Depends(get_db), _:
 
 
 @admin_app.post("/configuracoes")
-async def configuracoes_submit(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+async def configuracoes_submit(request: Request, db: Session = Depends(get_db), _: None = Depends(require_superadmin)):
     form = await request.form()
     campos = {
         "meta_phone_number_id": (form.get("meta_phone_number_id") or "").strip(),
@@ -1103,3 +1249,160 @@ async def configuracoes_submit(request: Request, db: Session = Depends(get_db), 
     atualizar_configuracao(db, **campos)
 
     return RedirectResponse(url="/admin/configuracoes?message=Configurações atualizadas com sucesso.", status_code=303)
+
+
+@admin_app.get("/usuarios", response_class=HTMLResponse)
+async def usuarios_list(request: Request, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    empresa_id = _query_empresa_id(request)
+    empresas = _empresas_visiveis(db, request)
+    if not empresa_id and len(empresas) == 1:
+        empresa_id = empresas[0].id
+    usuarios = listar_usuarios(db, empresa_id)
+
+    return templates.TemplateResponse(
+        request,
+        "admin/usuarios_list.html",
+        page_context(
+            request,
+            title="Usuários",
+            empresas=empresas,
+            usuarios=usuarios,
+            selected_empresa_id=empresa_id,
+        ),
+    )
+
+
+@admin_app.get("/usuarios/novo", response_class=HTMLResponse)
+async def usuario_new_page(request: Request, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    empresa_id = _query_empresa_id(request)
+    empresas = _empresas_visiveis(db, request)
+
+    return templates.TemplateResponse(
+        request,
+        "admin/usuario_form.html",
+        page_context(
+            request,
+            title="Novo usuário",
+            empresas=empresas,
+            usuario=None,
+            selected_empresa_id=empresa_id,
+            action_url="/admin/usuarios/novo",
+        ),
+    )
+
+
+@admin_app.post("/usuarios/novo")
+async def usuario_new_submit(request: Request, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    form = await request.form()
+    empresa_id = _empresa_id_do_formulario(request, form)
+    load_empresa(db, request, empresa_id)
+    nome = (form.get("nome") or "").strip()
+    email = (form.get("email") or "").strip().lower()
+    senha = form.get("senha") or ""
+    papel = (form.get("papel") or PAPEL_OPERADOR).strip()
+
+    erro = None
+    if not nome:
+        erro = "Informe o nome."
+    elif not email:
+        erro = "Informe o e-mail."
+    elif len(senha) < 8:
+        erro = "A senha deve ter pelo menos 8 caracteres."
+    elif papel not in {PAPEL_ADMIN, PAPEL_OPERADOR}:
+        erro = "Papel inválido."
+
+    if not erro:
+        try:
+            criar_usuario(db, empresa_id=empresa_id, nome=nome, email=email, senha=senha, papel=papel)
+        except IntegrityError:
+            db.rollback()
+            erro = "Já existe um usuário com esse e-mail."
+
+    if erro:
+        empresas = _empresas_visiveis(db, request)
+        return templates.TemplateResponse(
+            request,
+            "admin/usuario_form.html",
+            page_context(
+                request,
+                title="Novo usuário",
+                empresas=empresas,
+                usuario=SimpleNamespace(nome=nome, email=email, papel=papel, ativo=True),
+                selected_empresa_id=empresa_id,
+                action_url="/admin/usuarios/novo",
+                error=erro,
+            ),
+            status_code=400,
+        )
+
+    return RedirectResponse(url=f"/admin/usuarios?empresa_id={empresa_id}&message=Usuário criado com sucesso.", status_code=303)
+
+
+@admin_app.get("/usuarios/{usuario_id}/editar", response_class=HTMLResponse)
+async def usuario_edit_page(request: Request, usuario_id: int, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    empresas = _empresas_visiveis(db, request)
+    usuario = load_usuario(db, request, usuario_id)
+
+    return templates.TemplateResponse(
+        request,
+        "admin/usuario_form.html",
+        page_context(
+            request,
+            title="Editar usuário",
+            empresas=empresas,
+            usuario=usuario,
+            selected_empresa_id=usuario.empresa_id,
+            action_url=f"/admin/usuarios/{usuario_id}/editar",
+        ),
+    )
+
+
+@admin_app.post("/usuarios/{usuario_id}/editar")
+async def usuario_edit_submit(request: Request, usuario_id: int, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    form = await request.form()
+    usuario = load_usuario(db, request, usuario_id)
+    nome = (form.get("nome") or "").strip()
+    papel = (form.get("papel") or PAPEL_OPERADOR).strip()
+    ativo = parse_bool(form.get("ativo"))
+    nova_senha = form.get("senha") or ""
+
+    erro = None
+    if not nome:
+        erro = "Informe o nome."
+    elif papel not in {PAPEL_ADMIN, PAPEL_OPERADOR}:
+        erro = "Papel inválido."
+    elif nova_senha and len(nova_senha) < 8:
+        erro = "A senha deve ter pelo menos 8 caracteres."
+
+    if erro:
+        empresas = _empresas_visiveis(db, request)
+        return templates.TemplateResponse(
+            request,
+            "admin/usuario_form.html",
+            page_context(
+                request,
+                title="Editar usuário",
+                empresas=empresas,
+                usuario=usuario,
+                selected_empresa_id=usuario.empresa_id,
+                action_url=f"/admin/usuarios/{usuario_id}/editar",
+                error=erro,
+            ),
+            status_code=400,
+        )
+
+    atualizar_usuario(db, usuario, nome=nome, papel=papel, ativo=ativo, nova_senha=nova_senha or None)
+
+    return RedirectResponse(url=f"/admin/usuarios?empresa_id={usuario.empresa_id}&message=Usuário atualizado com sucesso.", status_code=303)
+
+
+@admin_app.post("/usuarios/{usuario_id}/toggle")
+async def usuario_toggle(request: Request, usuario_id: int, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    usuario = load_usuario(db, request, usuario_id)
+    if request.session.get("usuario_id") == usuario.id:
+        raise HTTPException(status_code=400, detail="nao_e_possivel_desativar_a_propria_conta")
+    usuario.ativo = not usuario.ativo
+    db.commit()
+    empresa_id = usuario.empresa_id
+
+    return RedirectResponse(url=f"/admin/usuarios?empresa_id={empresa_id}&message=Status do usuário atualizado.", status_code=303)

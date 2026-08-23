@@ -2,7 +2,7 @@
 
 Plataforma de atendimento e agendamento via WhatsApp para pequenos negócios (clínicas, barbearias, salões, restaurantes), com um único código-base atendendo várias empresas ao mesmo tempo. Cada empresa tem seu próprio catálogo de serviços, horários, base de conhecimento e configurações — isolados por `empresa_id` no mesmo banco.
 
-[![Testes](https://img.shields.io/badge/testes-70%20passing-brightgreen)]()
+[![Testes](https://img.shields.io/badge/testes-87%20passing-brightgreen)]()
 [![Python](https://img.shields.io/badge/python-3.12-blue)]()
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688)]()
 [![Licença](https://img.shields.io/badge/licença-MIT-blue)](LICENSE)
@@ -36,14 +36,15 @@ Documentação mais profunda:
 - **Camada de IA opcional (NLU)** — interpretação de linguagem natural como último recurso da máquina de estados, com provider plugável (OpenAI hoje, interface pronta para outros), cache Redis, timeout e fallback seguro. Desligada por padrão — zero impacto se não configurada.
 - **Atendimento humano** — registra e organiza solicitações de handoff, com fila e mudança de status no painel.
 - **Painel administrativo completo** — dashboard com indicadores por período, insights automáticos gerados a partir de dados reais, listagem de clientes inativos, CRUD de empresas/serviços/conhecimento, e configurações operacionais editáveis sem reiniciar o processo.
-- **Multi-tenant real** — isolamento por `empresa_id` em todas as tabelas de negócio; a mesma base atende várias empresas sem misturar dados.
+- **Multi-tenant real, inclusive no acesso** — isolamento por `empresa_id` em todas as tabelas de negócio; cada empresa cliente pode logar com seu próprio usuário e só enxerga os próprios dados, sem depender do acesso único da plataforma.
+- **Papéis e permissões** — usuário `admin` de uma empresa gerencia serviços, conhecimento e outros usuários da própria empresa; `operador` cobre o dia a dia (agenda, clientes, atendimento) sem acesso a exclusões, configurações ou gestão de usuários.
 
 ## Diferenciais técnicos
 
 - **Compatibilidade real SQLite/PostgreSQL** — os testes rodam em SQLite e a produção em PostgreSQL contra o mesmo bootstrap de schema, sem duplicar lógica de migration (ver `core/db_compat.py`).
 - **Configuração operacional viva no banco** — token da Meta, provider de IA, antecedência de lembrete e palavra de ativação são editáveis pelo painel e valem imediatamente, sem redeploy.
 - **IA como fallback, nunca como autoridade** — a camada de IA só é consultada quando a máquina de estados e a base de conhecimento não resolvem, e nunca executa uma ação destrutiva (cancelamento, por exemplo) sem passar pela tela de confirmação normal.
-- **Suíte de testes de verdade** — 70 testes automatizados cobrindo onboarding, conversa, agendamento, lembretes, base de conhecimento, métricas e a camada de IA (com providers e Redis simulados, sem depender de serviços externos).
+- **Suíte de testes de verdade** — 87 testes automatizados cobrindo onboarding, conversa, agendamento, lembretes, base de conhecimento, métricas, papéis/permissões e a camada de IA (com providers e Redis simulados, sem depender de serviços externos).
 - **Bootstrap de schema idempotente** — cria tabelas novas e adiciona colunas em bancos já existentes automaticamente, sem exigir um framework de migration para um projeto deste porte.
 
 ## Stack técnica
@@ -58,14 +59,14 @@ Documentação mais profunda:
 | Camada de IA (opcional) | OpenAI (interface plugável) | Interpretação de linguagem natural como fallback |
 | Templates | Jinja2 + Bootstrap | Painel administrativo server-side |
 | Infraestrutura | Docker + Docker Compose + systemd + Caddy | Build, orquestração, supervisão e proxy reverso |
-| Testes | pytest + FastAPI TestClient | 70 testes, banco SQLite isolado por teste |
+| Testes | pytest + FastAPI TestClient | 87 testes, banco SQLite isolado por teste |
 
 ## Arquitetura de código
 
 O backend (`bot-app/`) é organizado em camadas:
 
-- **`core/`** — infraestrutura compartilhada: configuração (`config.py`), conexão com o banco (`database.py`), modelos SQLAlchemy (`models.py`), bootstrap de schema (`schema.py`), compatibilidade SQLite/PostgreSQL (`db_compat.py`) e cliente Redis (`redis_client.py`).
-- **`services/`** — regras de negócio: motor de agendamento (`agenda.py`), base de conhecimento (`conhecimento.py`), atendimento humano (`atendimento_humano.py`), lembretes (`lembretes.py`), métricas/insights (`metricas.py`), configuração operacional (`configuracoes.py`) e utilitários de texto (`texto_utils.py`).
+- **`core/`** — infraestrutura compartilhada: configuração (`config.py`), conexão com o banco (`database.py`), modelos SQLAlchemy (`models.py`), bootstrap de schema (`schema.py`), compatibilidade SQLite/PostgreSQL (`db_compat.py`), cliente Redis (`redis_client.py`) e hashing de senha (`security.py`).
+- **`services/`** — regras de negócio: motor de agendamento (`agenda.py`), base de conhecimento (`conhecimento.py`), atendimento humano (`atendimento_humano.py`), lembretes (`lembretes.py`), métricas/insights (`metricas.py`), configuração operacional (`configuracoes.py`), usuários e papéis do painel (`usuarios.py`) e utilitários de texto (`texto_utils.py`).
 - **`integrations/`** — clientes de APIs externas: `meta_client.py` (Meta Graph API).
 - **`ai/`** — camada de interpretação de linguagem natural, isolada por trás de uma interface de provider única (`provider.py`, `service.py`, `cache.py`, `prompts.py`, `models.py`).
 - **`scripts/`** — utilitários de linha de comando: criação de tabelas, seed e pausar/retomar uma empresa.
@@ -130,7 +131,7 @@ Todas documentadas em [bot-app/.env.example](bot-app/.env.example). As mais rele
 | `REDIS_URL` | sim | Conexão com o Redis usado para estado de conversa e cache da IA |
 | `EVOLUTION_API_KEY` | sim | Chave da instância da Evolution API |
 | `META_TOKEN` / `META_PHONE_NUMBER_ID` | sim | Credenciais da Meta Graph API |
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | sim | Login do painel administrativo — `ADMIN_PASSWORD` precisa ser forte, valores padrão são rejeitados na inicialização |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | sim | Login do superadmin da plataforma (acesso a todas as empresas) — `ADMIN_PASSWORD` precisa ser forte, valores padrão são rejeitados na inicialização. Usuários por empresa (`admin`/`operador`) são cadastrados depois, em `/admin/usuarios` |
 | `SESSION_SECRET_KEY` | sim | Chave de assinatura de sessão (≥16 caracteres, gere com `openssl rand -hex 32`) |
 | `AI_ENABLED` | não (padrão `false`) | Liga a camada de IA — sem isso, comportamento idêntico ao de não ter essa camada |
 
@@ -192,13 +193,14 @@ O bot identifica a empresa pela `instance`, abre (ou recupera) o estado da conve
 
 ## Roadmap
 
-- [ ] Papéis e permissões no painel administrativo (hoje é um único usuário admin).
-- [ ] Cadastro manual de cliente final direto pelo painel.
+- [x] Papéis e permissões no painel administrativo — login por empresa (`admin`/`operador`), superadmin de plataforma via `.env` como bootstrap.
+- [x] Cadastro manual de cliente final direto pelo painel.
 - [ ] Cobrança recorrente (assinatura por empresa).
 - [ ] Observabilidade e auditoria mais completas (métricas operacionais, alertas).
 - [ ] Ampliar os pontos de fallback cobertos pela camada de IA e adicionar mais providers.
 - [ ] Criptografia em repouso para segredos guardados no banco (token da Meta, chave de IA).
 - [ ] Distribuição automática de solicitações de atendimento humano para operadores.
+- [ ] Criação do primeiro usuário da empresa integrada ao onboarding público (hoje precisa ser cadastrado manualmente em `/admin/usuarios` por um admin).
 
 ## Melhorias futuras possíveis
 
