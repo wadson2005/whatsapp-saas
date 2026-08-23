@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 
-from conftest import FakeRedis, preparar_ambiente
+from conftest import WEBHOOK_SECRET, FakeRedis, preparar_ambiente
 
 
 def carregar_app(monkeypatch, tmp_path: Path):
@@ -105,7 +105,7 @@ def test_mensagem_desconhecida_mostra_menu_e_atendente(monkeypatch, tmp_path):
 
     with TestClient(main.app) as client:
         response = client.post(
-            "/webhook",
+            f"/webhook?token={WEBHOOK_SECRET}",
             json=_payload_texto("clinica-sorriso-feliz", "5586999999999", "preciso de ajuda"),
         )
 
@@ -128,7 +128,7 @@ def test_cancelamento_exige_confirmacao_e_cancela(monkeypatch, tmp_path):
 
     with TestClient(main.app) as client:
         resposta_cancelar = client.post(
-            "/webhook",
+            f"/webhook?token={WEBHOOK_SECRET}",
             json=_payload_texto("clinica-sorriso-feliz", "5586999999998", "cancelar agendamento"),
         )
 
@@ -142,7 +142,7 @@ def test_cancelamento_exige_confirmacao_e_cancela(monkeypatch, tmp_path):
         conversa.enviar_lista.reset_mock()
 
         resposta_confirmar = client.post(
-            "/webhook",
+            f"/webhook?token={WEBHOOK_SECRET}",
             json=_payload_botao(
                 "clinica-sorriso-feliz",
                 "5586999999998",
@@ -180,7 +180,7 @@ def test_estado_inesperado_recebe_fallback_e_nao_quebra_o_contexto(monkeypatch, 
 
     with TestClient(main.app) as client:
         response = client.post(
-            "/webhook",
+            f"/webhook?token={WEBHOOK_SECRET}",
             json=_payload_texto("clinica-sorriso-feliz", "5586999999997", "qualquer coisa"),
         )
 
@@ -219,7 +219,7 @@ def test_ia_interpreta_cancelamento_quando_fora_das_palavras_chave(monkeypatch, 
 
     with TestClient(main.app) as client:
         response = client.post(
-            "/webhook",
+            f"/webhook?token={WEBHOOK_SECRET}",
             json=_payload_texto("clinica-sorriso-feliz", "5586999999996", "não vou poder ir nesse horário"),
         )
 
@@ -267,7 +267,7 @@ def test_ia_desconhecida_mantem_fallback_padrao(monkeypatch, tmp_path):
 
     with TestClient(main.app) as client:
         response = client.post(
-            "/webhook",
+            f"/webhook?token={WEBHOOK_SECRET}",
             json=_payload_texto("clinica-sorriso-feliz", "5586999999995", "posso levar meu filho junto?"),
         )
 
@@ -340,7 +340,7 @@ def test_configuracao_pelo_painel_ativa_ia_sem_reiniciar_processo(monkeypatch, t
         assert resposta_config.status_code == 303
 
         response = client.post(
-            "/webhook",
+            f"/webhook?token={WEBHOOK_SECRET}",
             json=_payload_texto("clinica-sorriso-feliz", "5586999999994", "queria falar com alguém sobre um caso específico"),
         )
 

@@ -5,11 +5,11 @@ Este documento descreve como as peças do sistema se encaixam e por que algumas 
 ## Caminho de uma mensagem
 
 1. O cliente manda uma mensagem no WhatsApp.
-2. A Evolution API recebe e dispara um webhook para `POST /webhook` (`bot-app/main.py`).
+2. A Evolution API recebe e dispara um webhook para `POST /webhook?token=<WEBHOOK_SECRET>` (`bot-app/main.py`). O token é comparado com `hmac.compare_digest` antes de qualquer outra coisa; sem ele (ou com o valor errado) a requisição recebe 401 e nem chega a ler o payload — sem essa checagem, qualquer um poderia forjar um POST simulando mensagem de qualquer número para qualquer empresa (o `instance` do payload, usado para achar a empresa, é só o slug — previsível). O token é embutido na URL do webhook automaticamente no momento em que a instância é criada na Evolution API (onboarding ou "Nova empresa" no painel); ver a nota sobre instalações existentes em [deployment.md](deployment.md).
 3. O bot identifica a instância recebida no payload, procura a empresa correspondente (`evolution_instance_name`) e confirma que ela está ativa.
 4. `conversa.processar_mensagem()` consulta o estado atual da conversa no Redis (chave `conversa:{empresa_id}:{numero}`, TTL configurável por empresa) e decide o próximo passo.
 5. Se a máquina de estados não sabe o que fazer com a mensagem, ela consulta primeiro a base de conhecimento da empresa e, só depois, a camada de IA opcional (ver abaixo).
-6. O agendamento, quando confirmado, é validado e gravado em PostgreSQL (`services/agenda.py`) — conflito de horário, dia de funcionamento, horário de almoço e dias/datas indisponíveis são todos verificados antes de persistir.
+6. O agendamento, quando confirmado, é validado e gravado em PostgreSQL (`services/agenda.py`) — conflito de horário, dia de funcionamento, horário de almoço e dias/datas indisponíveis são todos verificados antes de persistir. Para evitar overbooking por duas mensagens concorrentes disputando o mesmo horário, `agendar_servico`/`reagendar_agendamento` validam, travam a linha da `Empresa` (`SELECT ... FOR UPDATE`, efetivo em Postgres) e validam de novo antes de gravar — a segunda mensagem só segue depois que a primeira transação commitar, e nesse ponto já vê o conflito.
 7. A resposta volta como mensagem interativa (botão ou lista) via Meta Graph API (`integrations/meta_client.py`). A Evolution API só recebe o webhook e sobe a infraestrutura de WhatsApp — todo envio de mensagem passa pela Meta.
 8. Em paralelo, um ciclo assíncrono dentro do próprio processo (`main._loop_lembretes`) varre agendamentos próximos e dispara lembretes automáticos via template pré-aprovado da Meta.
 

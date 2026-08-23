@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 
-from conftest import FakeRedis, preparar_ambiente
+from conftest import WEBHOOK_SECRET, FakeRedis, preparar_ambiente
 
 
 def carregar_app(monkeypatch, tmp_path: Path):
@@ -93,7 +93,7 @@ def test_solicitacao_humana_eh_criada_e_confirmada_no_whatsapp(monkeypatch, tmp_
 
     with TestClient(main.app) as client:
         response = client.post(
-            "/webhook",
+            f"/webhook?token={WEBHOOK_SECRET}",
             json=_payload_texto("clinica-sorriso-feliz", "5586999999999", "quero falar com atendente"),
         )
 
@@ -123,11 +123,11 @@ def test_solicitacao_humana_nao_duplica_pendente(monkeypatch, tmp_path):
 
     with TestClient(main.app) as client:
         primeira = client.post(
-            "/webhook",
+            f"/webhook?token={WEBHOOK_SECRET}",
             json=_payload_texto("clinica-sorriso-feliz", "5586999999998", "falar com humano"),
         )
         segunda = client.post(
-            "/webhook",
+            f"/webhook?token={WEBHOOK_SECRET}",
             json=_payload_texto("clinica-sorriso-feliz", "5586999999998", "falar com humano"),
         )
 

@@ -381,6 +381,18 @@ def formatar_data_hora(dt: datetime) -> str:
     return dt.strftime("%d/%m/%Y às %H:%M")
 
 
+def _travar_empresa_para_escrita(db, empresa: Empresa) -> None:
+    """Serializa concorrência: trava a linha da empresa até o commit/rollback da
+    transação atual. Sem isso, duas mensagens simultâneas pedindo o mesmo horário
+    podem passar juntas por `validar_agendamento` (nenhuma vê o agendamento da
+    outra ainda) e as duas seriam gravadas — overbooking. No Postgres (produção)
+    a segunda chamada bloqueia aqui até a primeira liberar a trava; no SQLite
+    (testes/dev) `with_for_update()` é ignorado, então a garantia de exclusão
+    mútua real só vale em produção.
+    """
+    db.query(Empresa).filter(Empresa.id == empresa.id).with_for_update().first()
+
+
 def agendar_servico(
     db,
     empresa: Empresa,
@@ -390,6 +402,12 @@ def agendar_servico(
 ) -> tuple[Agendamento | None, ValidacaoAgendamento]:
     validacao = validar_agendamento(db, empresa, servico, inicio_em)
     if not validacao.ok:
+        return None, validacao
+
+    _travar_empresa_para_escrita(db, empresa)
+    validacao = validar_agendamento(db, empresa, servico, inicio_em)
+    if not validacao.ok:
+        db.rollback()
         return None, validacao
 
     numero_limpo = numero.split("@")[0]
@@ -424,6 +442,12 @@ def reagendar_agendamento(
     servico = agendamento.servico
     validacao = validar_agendamento(db, empresa, servico, inicio_em, ignorar_agendamento_id=agendamento.id)
     if not validacao.ok:
+        return None, validacao
+
+    _travar_empresa_para_escrita(db, empresa)
+    validacao = validar_agendamento(db, empresa, servico, inicio_em, ignorar_agendamento_id=agendamento.id)
+    if not validacao.ok:
+        db.rollback()
         return None, validacao
 
     duracao = duracao_servico(servico)

@@ -12,9 +12,11 @@ BOOTSTRAP_ENV = {
     "ADMIN_USERNAME": "admin",
     "ADMIN_PASSWORD": "senha-super-segura-123",
     "SESSION_SECRET_KEY": "0123456789abcdef0123456789abcdef",
+    "WEBHOOK_SECRET": "0123456789abcdef0123456789abcdef",
 }
 
 ADMIN_PASSWORD = BOOTSTRAP_ENV["ADMIN_PASSWORD"]
+WEBHOOK_SECRET = BOOTSTRAP_ENV["WEBHOOK_SECRET"]
 
 # Módulos da aplicação que precisam ser recarregados a cada teste: cada um lê
 # `config.settings` (ou algo que depende dela) na importação, então o cache do

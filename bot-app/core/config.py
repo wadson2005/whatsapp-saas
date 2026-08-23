@@ -35,6 +35,7 @@ class Settings(BaseSettings):
         validation_alias="SEED_EMPRESA_EVOLUTION_INSTANCE",
     )
     public_base_url: str = Field(validation_alias="PUBLIC_BASE_URL")
+    webhook_secret: str = Field(validation_alias="WEBHOOK_SECRET")
     admin_username: str = Field(default="admin", validation_alias="ADMIN_USERNAME")
     admin_password: str = Field(validation_alias="ADMIN_PASSWORD")
     session_secret_key: str = Field(validation_alias="SESSION_SECRET_KEY")
@@ -65,6 +66,13 @@ class Settings(BaseSettings):
     def validar_session_secret_key(cls, value: str) -> str:
         if not value or value == "change-me-in-production" or len(value) < 16:
             raise ValueError("SESSION_SECRET_KEY deve ser definido com um valor forte de pelo menos 16 caracteres")
+        return value
+
+    @field_validator("webhook_secret")
+    @classmethod
+    def validar_webhook_secret(cls, value: str) -> str:
+        if not value or len(value) < 16:
+            raise ValueError("WEBHOOK_SECRET deve ser definido com um valor forte de pelo menos 16 caracteres")
         return value
 
     @field_validator("public_base_url")

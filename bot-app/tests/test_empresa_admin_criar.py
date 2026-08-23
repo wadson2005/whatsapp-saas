@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 
-from conftest import preparar_ambiente
+from conftest import WEBHOOK_SECRET, preparar_ambiente
 
 
 def carregar_app(monkeypatch, tmp_path: Path):
@@ -67,7 +67,7 @@ def test_criar_empresa_cria_instancia_automaticamente_e_redireciona_para_conecta
     admin_module.criar_instancia.assert_awaited_once()
     assert admin_module.criar_instancia.call_args.args[0] == "clinica-sorriso-feliz"
     assert admin_module.criar_instancia.call_args.args[1] == "5586999999999"
-    assert admin_module.criar_instancia.call_args.args[2] == "https://teste.exemplo.com/webhook"
+    assert admin_module.criar_instancia.call_args.args[2] == f"https://teste.exemplo.com/webhook?token={WEBHOOK_SECRET}"
 
     db = main.SessionLocal()
     try:

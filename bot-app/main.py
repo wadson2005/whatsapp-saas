@@ -1,9 +1,11 @@
 import asyncio
+import hmac
 import logging
 import re
 from contextlib import suppress
 from datetime import time
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -270,7 +272,7 @@ async def onboarding_configurar_submit(request: Request, db: Session = Depends(g
         )
 
     nome_instancia = draft["slug"]
-    webhook_url = f"{settings.public_base_url}/webhook"
+    webhook_url = f"{settings.public_base_url}/webhook?token={quote(settings.webhook_secret)}"
 
     try:
         await criar_instancia(nome_instancia, dados["telefone_whatsapp"], webhook_url)
@@ -485,6 +487,10 @@ def extrair_conteudo(dados: dict) -> tuple[str | None, str | None]:
 
 @app.post("/webhook")
 async def receber_mensagem(request: Request, db: Session = Depends(get_db)):
+    token = request.query_params.get("token") or ""
+    if not hmac.compare_digest(token, settings.webhook_secret):
+        raise HTTPException(status_code=401, detail="token_invalido")
+
     payload = await request.json()
     logger.debug("Payload recebido no webhook: %s", payload)
     try:

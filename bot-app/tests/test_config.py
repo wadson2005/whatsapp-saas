@@ -1,5 +1,4 @@
 import importlib
-import os
 import sys
 from pathlib import Path
 
@@ -16,24 +15,34 @@ BOOTSTRAP_ENV = {
     "PUBLIC_BASE_URL": "https://teste.exemplo.com",
     "ADMIN_PASSWORD": "senha-super-segura-123",
     "SESSION_SECRET_KEY": "0123456789abcdef0123456789abcdef",
+    "WEBHOOK_SECRET": "0123456789abcdef0123456789abcdef",
 }
 
 
-def carregar_settings():
+def carregar_settings(monkeypatch):
+    """Importa `Settings` isolada do `.env` real do projeto.
+
+    Sem isso, testes que removem uma env var (`monkeypatch.delenv`) fariam o
+    pydantic-settings cair de volta para `bot-app/.env` do disco do
+    desenvolvedor — que normalmente tem segredos fortes de verdade — e a
+    validação de "segredo obrigatório ausente" nunca seria exercitada.
+    """
     project_root = str(PROJECT_ROOT)
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
     for chave, valor in BOOTSTRAP_ENV.items():
-        os.environ.setdefault(chave, valor)
+        monkeypatch.setenv(chave, valor)
 
     sys.modules.pop("core.config", None)
-    return importlib.import_module("core.config").Settings
+    Settings = importlib.import_module("core.config").Settings
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
+    return Settings
 
 
 @pytest.mark.parametrize("env_value", [None, ""])
 def test_settings_rejeita_segredos_fracos_ou_ausentes(monkeypatch, env_value):
-    Settings = carregar_settings()
+    Settings = carregar_settings(monkeypatch)
 
     monkeypatch.delenv("ADMIN_PASSWORD", raising=False)
     monkeypatch.delenv("SESSION_SECRET_KEY", raising=False)
@@ -47,7 +56,7 @@ def test_settings_rejeita_segredos_fracos_ou_ausentes(monkeypatch, env_value):
 
 
 def test_settings_rejeita_placeholders_e_secret_curto(monkeypatch):
-    Settings = carregar_settings()
+    Settings = carregar_settings(monkeypatch)
 
     monkeypatch.setenv("ADMIN_PASSWORD", "admin123")
     monkeypatch.setenv("SESSION_SECRET_KEY", "change-me-in-production")
@@ -61,7 +70,7 @@ def test_settings_rejeita_placeholders_e_secret_curto(monkeypatch):
 
 
 def test_settings_aceita_valores_fortes(monkeypatch):
-    Settings = carregar_settings()
+    Settings = carregar_settings(monkeypatch)
 
     monkeypatch.setenv("ADMIN_PASSWORD", "senha-super-segura-123")
     monkeypatch.setenv("SESSION_SECRET_KEY", "0123456789abcdef0123456789abcdef")

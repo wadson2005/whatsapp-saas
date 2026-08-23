@@ -132,6 +132,7 @@ Todas documentadas em [bot-app/.env.example](bot-app/.env.example). As mais rele
 | `REDIS_URL` | sim | Conexão com o Redis usado para estado de conversa e cache da IA |
 | `EVOLUTION_API_KEY` | sim | Chave da instância da Evolution API |
 | `PUBLIC_BASE_URL` | sim | URL pública do bot (ex.: `https://seu-dominio.com`), usada para configurar o webhook ao criar uma instância na Evolution API automaticamente |
+| `WEBHOOK_SECRET` | sim | Segredo que autentica `POST /webhook` (vai como `?token=...` na URL configurada na Evolution API; requisições sem o token correto recebem 401) — gere com `openssl rand -hex 32` |
 | `META_TOKEN` / `META_PHONE_NUMBER_ID` | sim | Credenciais da Meta Graph API |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | sim | Login do superadmin da plataforma (acesso a todas as empresas) — `ADMIN_PASSWORD` precisa ser forte, valores padrão são rejeitados na inicialização. Usuários por empresa (`admin`/`operador`) são cadastrados depois, em `/admin/usuarios` |
 | `SESSION_SECRET_KEY` | sim | Chave de assinatura de sessão (≥16 caracteres, gere com `openssl rand -hex 32`) |

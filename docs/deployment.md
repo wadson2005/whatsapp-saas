@@ -37,7 +37,7 @@ docker compose up -d
 ```bash
 cd bot-app
 cp .env.example .env
-# preencha DATABASE_URL, REDIS_URL, credenciais da Meta, PUBLIC_BASE_URL, ADMIN_PASSWORD e SESSION_SECRET_KEY
+# preencha DATABASE_URL, REDIS_URL, credenciais da Meta, PUBLIC_BASE_URL, WEBHOOK_SECRET, ADMIN_PASSWORD e SESSION_SECRET_KEY
 
 python -m scripts.criar_tabelas   # bootstrap idempotente do schema
 docker compose up --build -d
@@ -66,9 +66,11 @@ sudo systemctl reload caddy
 
 ## Variáveis obrigatórias
 
-Ver a lista completa em [bot-app/.env.example](../bot-app/.env.example) e na seção "Variáveis de ambiente" do [README](../README.md). As que impedem a aplicação de subir se ausentes ou fracas: `DATABASE_URL`, `REDIS_URL`, `EVOLUTION_API_KEY`, `PUBLIC_BASE_URL`, `META_TOKEN`, `META_PHONE_NUMBER_ID`, `ADMIN_PASSWORD`, `SESSION_SECRET_KEY`.
+Ver a lista completa em [bot-app/.env.example](../bot-app/.env.example) e na seção "Variáveis de ambiente" do [README](../README.md). As que impedem a aplicação de subir se ausentes ou fracas: `DATABASE_URL`, `REDIS_URL`, `EVOLUTION_API_KEY`, `PUBLIC_BASE_URL`, `WEBHOOK_SECRET`, `META_TOKEN`, `META_PHONE_NUMBER_ID`, `ADMIN_PASSWORD`, `SESSION_SECRET_KEY`.
 
-> **Atualizando uma instalação existente:** `PUBLIC_BASE_URL` é uma variável nova — se o processo já estava rodando antes dessa mudança, adicione-a ao `.env` antes de reiniciar, senão a aplicação não sobe (falha de validação na inicialização, igual às outras variáveis obrigatórias).
+> **Atualizando uma instalação existente:** `PUBLIC_BASE_URL` e `WEBHOOK_SECRET` são variáveis novas — se o processo já estava rodando antes dessa mudança, adicione as duas ao `.env` antes de reiniciar, senão a aplicação não sobe (falha de validação na inicialização, igual às outras variáveis obrigatórias).
+>
+> **`WEBHOOK_SECRET` especificamente:** `POST /webhook` passou a exigir `?token=<WEBHOOK_SECRET>` na URL (proteção contra qualquer um forjar mensagens de qualquer empresa). Esse token só é embutido na URL do webhook no momento em que a instância é **criada** na Evolution API (onboarding ou "Nova empresa" no painel). Empresas cadastradas **antes** dessa mudança têm o webhook configurado na Evolution API com a URL antiga, sem token — depois do deploy, o bot vai parar de responder para elas (toda mensagem cai em 401) até o webhook dessa instância ser reconfigurado manualmente na Evolution API (Manager UI ou API) apontando para `PUBLIC_BASE_URL/webhook?token=<WEBHOOK_SECRET>`.
 
 ## Template de mensagem para lembretes
 
@@ -107,7 +109,7 @@ cd bot-app && python -m scripts.retomar
 
 ## Checklist antes de ir para produção
 
-- [ ] `ADMIN_PASSWORD` e `SESSION_SECRET_KEY` gerados com valores fortes (não os exemplos do `.env.example`).
+- [ ] `ADMIN_PASSWORD`, `SESSION_SECRET_KEY` e `WEBHOOK_SECRET` gerados com valores fortes (não os exemplos do `.env.example`).
 - [ ] `PUBLIC_BASE_URL` configurado com o domínio público real e o Caddy já respondendo nele — necessário antes de cadastrar a primeira empresa pelo onboarding.
 - [ ] `DATABASE_URL` apontando para PostgreSQL (não SQLite) — o schema é compatível com os dois, mas SQLite não é recomendado para múltiplos workers/produção.
 - [ ] Template de lembrete aprovado no Meta Business Manager.

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 
-from conftest import FakeRedis, preparar_ambiente
+from conftest import WEBHOOK_SECRET, FakeRedis, preparar_ambiente
 
 
 def carregar_app(monkeypatch, tmp_path: Path):
@@ -228,7 +228,7 @@ def test_conversa_usa_conhecimento_antes_da_ia(monkeypatch, tmp_path):
 
     with TestClient(main.app) as client:
         resposta = client.post(
-            "/webhook",
+            f"/webhook?token={WEBHOOK_SECRET}",
             json=_payload_texto("instancia-a", "5511900000001", "vocês têm estacionamento gratuito?"),
         )
 
@@ -271,7 +271,7 @@ def test_conversa_sem_match_aciona_ia_normalmente(monkeypatch, tmp_path):
 
     with TestClient(main.app) as client:
         resposta = client.post(
-            "/webhook",
+            f"/webhook?token={WEBHOOK_SECRET}",
             json=_payload_texto("instancia-a", "5511900000002", "posso levar meu cachorro junto?"),
         )
 

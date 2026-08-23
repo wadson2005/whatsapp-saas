@@ -3,6 +3,7 @@ import re
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -552,7 +553,7 @@ async def empresa_new_submit(request: Request, db: Session = Depends(get_db), _:
 
     nome_instancia = dados.slug
     telefone_normalizado = _normalizar_telefone(dados.telefone_whatsapp)
-    webhook_url = f"{settings.public_base_url}/webhook"
+    webhook_url = f"{settings.public_base_url}/webhook?token={quote(settings.webhook_secret)}"
 
     try:
         await criar_instancia(nome_instancia, telefone_normalizado, webhook_url)
