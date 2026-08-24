@@ -26,8 +26,8 @@
     </div>
     <div class="col-12">
       <label class="form-label">Slug público</label>
-      <input type="text" name="slug" class="form-control" required placeholder="clinica-sorriso-feliz" value="{{ draft.get('slug', '') }}" />
-      <div class="field-hint mt-1">Use apenas letras minúsculas, números e hífens.</div>
+      <input type="text" name="slug" id="campo-slug" class="form-control" required placeholder="clinica-sorriso-feliz" value="{{ draft.get('slug', '') }}" />
+      <div class="field-hint mt-1">Gerado automaticamente a partir do nome — só letras minúsculas, números e hífens (sem acentos, espaços ou símbolos).</div>
       {% if errors.get('slug') %}<div class="text-danger small mt-1">{{ errors.get('slug') }}</div>{% endif %}
     </div>
     <div class="col-12">
@@ -39,6 +39,33 @@
       <button type="submit" class="btn btn-brand btn-lg">Continuar para a configuração</button>
     </div>
   </form>
+  <script>
+    (function () {
+      var nomeInput = document.querySelector('input[name="nome"]');
+      var slugInput = document.getElementById('campo-slug');
+      if (!nomeInput || !slugInput) return;
+
+      function removerAcentos(texto) {
+        return texto.normalize('NFD').split('').filter(function (ch) {
+          var codigo = ch.charCodeAt(0);
+          return codigo < 0x0300 || codigo > 0x036f;
+        }).join('');
+      }
+
+      function slugify(texto) {
+        return removerAcentos(texto)
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '');
+      }
+
+      var editadoManualmente = slugInput.value.trim().length > 0;
+      slugInput.addEventListener('input', function () { editadoManualmente = true; });
+      nomeInput.addEventListener('input', function () {
+        if (!editadoManualmente) slugInput.value = slugify(nomeInput.value);
+      });
+    })();
+  </script>
   {% else %}
   <div class="summary-card p-3 mb-3">
     <div class="fw-bold mb-1">Resumo da empresa</div>

@@ -15,11 +15,14 @@
       <form method="post" action="{{ action_url }}" class="row g-3">
         <div class="col-12 col-lg-6">
           <label class="form-label">Nome</label>
-          <input type="text" name="nome" class="form-control" required value="{{ empresa.nome if empresa else '' }}" />
+          <input type="text" name="nome" id="campo-nome" class="form-control" required value="{{ empresa.nome if empresa else '' }}" />
         </div>
         <div class="col-12 col-lg-6">
           <label class="form-label">Slug</label>
-          <input type="text" name="slug" class="form-control" required value="{{ empresa.slug if empresa else '' }}" />
+          <input type="text" name="slug" id="campo-slug" class="form-control" required value="{{ empresa.slug if empresa else '' }}" />
+          {% if not empresa %}
+          <div class="form-text">Gerado automaticamente a partir do nome — só letras minúsculas, números e hífens (sem acentos, espaços ou símbolos).</div>
+          {% endif %}
         </div>
         <div class="col-12 col-lg-6">
           <label class="form-label">Segmento</label>
@@ -27,10 +30,8 @@
         </div>
         <div class="col-12 col-lg-6">
           <label class="form-label">Telefone WhatsApp</label>
-          <input type="text" name="telefone_whatsapp" class="form-control" required value="{{ empresa.telefone_whatsapp if empresa else '' }}" />
-          {% if not empresa %}
-          <div class="form-text">A instância do WhatsApp é criada e conectada automaticamente para este número ao salvar.</div>
-          {% endif %}
+          <input type="text" name="telefone_whatsapp" class="form-control" required placeholder="5586999999999" value="{{ empresa.telefone_whatsapp if empresa else '' }}" />
+          <div class="form-text">DDI + DDD + número, só dígitos (ex.: 55 86 99999-9999 vira 5586999999999).{% if not empresa %} A instância do WhatsApp é criada e conectada automaticamente para este número ao salvar.{% endif %}</div>
         </div>
         <div class="col-12 col-lg-6 d-flex align-items-end">
           <div class="form-check form-switch">
@@ -69,6 +70,35 @@
           <button type="submit" class="btn btn-brand">Salvar</button>
         </div>
       </form>
+      {% if not empresa %}
+      <script>
+        (function () {
+          var nomeInput = document.getElementById('campo-nome');
+          var slugInput = document.getElementById('campo-slug');
+          if (!nomeInput || !slugInput) return;
+
+          function removerAcentos(texto) {
+            return texto.normalize('NFD').split('').filter(function (ch) {
+              var codigo = ch.charCodeAt(0);
+              return codigo < 0x0300 || codigo > 0x036f;
+            }).join('');
+          }
+
+          function slugify(texto) {
+            return removerAcentos(texto)
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-+|-+$/g, '');
+          }
+
+          var editadoManualmente = slugInput.value.trim().length > 0;
+          slugInput.addEventListener('input', function () { editadoManualmente = true; });
+          nomeInput.addEventListener('input', function () {
+            if (!editadoManualmente) slugInput.value = slugify(nomeInput.value);
+          });
+        })();
+      </script>
+      {% endif %}
     </div>
   </div>
 </div>

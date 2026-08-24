@@ -16,7 +16,7 @@ def carregar_app(monkeypatch, tmp_path: Path):
     return main, admin_module, models
 
 
-def _mockar_evolution(admin_module, *, criar_ok=True, erro=None):
+def _mockar_evolution(admin_module, *, criar_ok=True, erro=None, ja_existe=False):
     from integrations.evolution_client import EvolutionAPIConexaoError
 
     if criar_ok:
@@ -25,6 +25,7 @@ def _mockar_evolution(admin_module, *, criar_ok=True, erro=None):
         admin_module.criar_instancia = AsyncMock(side_effect=erro or EvolutionAPIConexaoError("Não foi possível conectar à Evolution API."))
     admin_module.excluir_instancia = AsyncMock(return_value=None)
     admin_module.gerar_qrcode = AsyncMock(return_value={"pairingCode": "WZYEH1YY", "code": "2@abc", "count": 1})
+    admin_module.instancia_existe = AsyncMock(return_value=ja_existe)
 
 
 def _login_superadmin(client: TestClient):
@@ -141,6 +142,44 @@ def test_criar_empresa_mostra_motivo_real_quando_evolution_api_recusa(monkeypatc
         assert db.query(models.Empresa).count() == 0
     finally:
         db.close()
+
+
+def test_criar_empresa_rejeita_slug_ja_usado_na_evolution(monkeypatch, tmp_path):
+    main, admin_module, models = carregar_app(monkeypatch, tmp_path)
+    _mockar_evolution(admin_module, ja_existe=True)
+
+    with TestClient(main.app) as client:
+        _login_superadmin(client)
+
+        resposta = client.post("/admin/empresas/nova", data=_dados_empresa(), follow_redirects=False)
+
+    assert resposta.status_code == 400
+    assert "já existe uma instância de whatsapp" in resposta.text.lower()
+    admin_module.criar_instancia.assert_not_awaited()
+
+    db = main.SessionLocal()
+    try:
+        assert db.query(models.Empresa).count() == 0
+    finally:
+        db.close()
+
+
+def test_criar_empresa_sugere_slug_valido_quando_slug_tem_acento(monkeypatch, tmp_path):
+    main, admin_module, models = carregar_app(monkeypatch, tmp_path)
+    _mockar_evolution(admin_module)
+
+    with TestClient(main.app) as client:
+        _login_superadmin(client)
+
+        resposta = client.post(
+            "/admin/empresas/nova",
+            data=_dados_empresa(nome="Salão Aurora & Cia", slug="Salão Aurora"),
+            follow_redirects=False,
+        )
+
+    assert resposta.status_code == 400
+    assert "sugestão: salao-aurora" in resposta.text.lower()
+    admin_module.criar_instancia.assert_not_awaited()
 
 
 def test_formulario_de_empresa_nao_pede_mais_instancia_evolution(monkeypatch, tmp_path):

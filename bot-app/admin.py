@@ -25,12 +25,14 @@ from integrations.evolution_client import (
     estado_conexao,
     excluir_instancia,
     gerar_qrcode,
+    instancia_existe,
     qrcode_para_json,
 )
 from services.atendimento_humano import STATUS_EM_ATENDIMENTO, STATUS_FINALIZADO, STATUS_PENDENTE, atualizar_status_solicitacao_atendimento
 from services.conhecimento import atualizar_conhecimento, criar_conhecimento, excluir_conhecimento, listar_conhecimento
 from services.configuracoes import atualizar_configuracao, obter_configuracao
 from services.metricas import calcular_metricas, gerar_insights, listar_clientes_inativos
+from services.texto_utils import gerar_slug
 from services.usuarios import (
     PAPEL_ADMIN,
     PAPEL_OPERADOR,
@@ -620,7 +622,9 @@ async def empresa_new_submit(request: Request, db: Session = Depends(get_db), _:
 
     erro_validacao = None
     if not dados.slug or not SLUG_REGEX.fullmatch(dados.slug):
-        erro_validacao = "Use um slug com apenas letras minúsculas, números e hífens."
+        sugestao = gerar_slug(dados.nome or dados.slug or "")
+        dica = f" Sugestão: {sugestao}" if sugestao else ""
+        erro_validacao = f"Use um slug com apenas letras minúsculas, números e hífens (sem acentos ou espaços).{dica}"
     elif db.query(Empresa.id).filter(Empresa.slug == dados.slug).first():
         erro_validacao = "Já existe uma empresa com esse slug."
     elif not _normalizar_telefone(dados.telefone_whatsapp):
@@ -637,6 +641,20 @@ async def empresa_new_submit(request: Request, db: Session = Depends(get_db), _:
     nome_instancia = dados.slug
     telefone_normalizado = _normalizar_telefone(dados.telefone_whatsapp)
     webhook_url = f"{settings.public_base_url}/webhook?token={quote(settings.webhook_secret)}"
+
+    if await instancia_existe(nome_instancia):
+        return templates.TemplateResponse(
+            request,
+            "admin/empresa_form.html",
+            page_context(
+                request,
+                title="Nova empresa",
+                empresa=dados,
+                action_url="/admin/empresas/nova",
+                error=f"Já existe uma instância de WhatsApp com o identificador '{nome_instancia}'. Escolha outro slug.",
+            ),
+            status_code=400,
+        )
 
     try:
         await criar_instancia(nome_instancia, telefone_normalizado, webhook_url)

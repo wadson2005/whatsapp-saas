@@ -31,7 +31,7 @@ def _dados_passo2(**overrides):
     return dados
 
 
-def _mockar_evolution(main, *, criar_ok=True, qrcode=None, estado="close", erro=None):
+def _mockar_evolution(main, *, criar_ok=True, qrcode=None, estado="close", erro=None, ja_existe=False):
     from integrations.evolution_client import EvolutionAPIConexaoError
 
     if criar_ok:
@@ -42,6 +42,7 @@ def _mockar_evolution(main, *, criar_ok=True, qrcode=None, estado="close", erro=
     main.gerar_qrcode = AsyncMock(return_value=qrcode or {"pairingCode": "WZYEH1YY", "code": "2@abc123", "count": 1})
     main.estado_conexao = AsyncMock(return_value=estado)
     main.excluir_instancia = AsyncMock(return_value=None)
+    main.instancia_existe = AsyncMock(return_value=ja_existe)
 
 
 def test_raiz_redireciona_para_onboarding_quando_nao_existe_empresa(monkeypatch, tmp_path):
@@ -190,6 +191,45 @@ def test_onboarding_mostra_motivo_real_quando_evolution_api_recusa(monkeypatch, 
         assert db.query(models.Empresa).count() == 0
     finally:
         db.close()
+
+
+def test_onboarding_rejeita_slug_ja_usado_na_evolution(monkeypatch, tmp_path):
+    main = carregar_app(monkeypatch, tmp_path)
+    models = importlib.import_module("core.models")
+    _mockar_evolution(main, ja_existe=True)
+
+    with TestClient(main.app) as client:
+        client.post(
+            "/onboarding",
+            data={"nome": "Clínica Sorriso Feliz", "slug": "clinica-sorriso-feliz", "segmento": "clinica"},
+            follow_redirects=False,
+        )
+
+        passo2 = client.post("/onboarding/configurar", data=_dados_passo2(), follow_redirects=False)
+
+    assert passo2.status_code == 400
+    assert "já existe uma instância de whatsapp" in passo2.text.lower()
+    main.criar_instancia.assert_not_awaited()
+
+    db = main.SessionLocal()
+    try:
+        assert db.query(models.Empresa).count() == 0
+    finally:
+        db.close()
+
+
+def test_onboarding_sugere_slug_valido_quando_nome_tem_acento(monkeypatch, tmp_path):
+    main = carregar_app(monkeypatch, tmp_path)
+
+    with TestClient(main.app) as client:
+        resposta = client.post(
+            "/onboarding",
+            data={"nome": "Salão Aurora & Cia", "slug": "Salão Aurora", "segmento": "salao"},
+            follow_redirects=False,
+        )
+
+    assert resposta.status_code == 400
+    assert "sugestão: salao-aurora" in resposta.text.lower()
 
 
 def test_onboarding_rejeita_email_ja_cadastrado(monkeypatch, tmp_path):

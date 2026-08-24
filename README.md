@@ -2,7 +2,7 @@
 
 Plataforma de atendimento e agendamento via WhatsApp para pequenos negócios (clínicas, barbearias, salões, restaurantes), com um único código-base atendendo várias empresas ao mesmo tempo. Cada empresa tem seu próprio catálogo de serviços, horários, base de conhecimento e configurações — isolados por `empresa_id` no mesmo banco.
 
-[![Testes](https://img.shields.io/badge/testes-120%20passing-brightgreen)]()
+[![Testes](https://img.shields.io/badge/testes-129%20passing-brightgreen)]()
 [![Python](https://img.shields.io/badge/python-3.12-blue)]()
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688)]()
 [![Licença](https://img.shields.io/badge/licença-MIT-blue)](LICENSE)
@@ -46,7 +46,7 @@ Documentação mais profunda:
 - **Compatibilidade real SQLite/PostgreSQL** — os testes rodam em SQLite e a produção em PostgreSQL contra o mesmo bootstrap de schema, sem duplicar lógica de migration (ver `core/db_compat.py`).
 - **Configuração operacional viva no banco** — token da Meta, provider de IA, antecedência de lembrete e palavra de ativação são editáveis pelo painel e valem imediatamente, sem redeploy.
 - **IA como fallback, nunca como autoridade** — a camada de IA só é consultada quando a máquina de estados e a base de conhecimento não resolvem, e nunca executa uma ação destrutiva (cancelamento, por exemplo) sem passar pela tela de confirmação normal.
-- **Suíte de testes de verdade** — 120 testes automatizados cobrindo onboarding, conversa, agendamento, lembretes, base de conhecimento, métricas, papéis/permissões e a camada de IA (com providers e Redis simulados, sem depender de serviços externos).
+- **Suíte de testes de verdade** — 129 testes automatizados cobrindo onboarding, conversa, agendamento, lembretes, base de conhecimento, métricas, papéis/permissões e a camada de IA (com providers e Redis simulados, sem depender de serviços externos).
 - **Bootstrap de schema idempotente** — cria tabelas novas e adiciona colunas em bancos já existentes automaticamente, sem exigir um framework de migration para um projeto deste porte.
 
 ## Stack técnica

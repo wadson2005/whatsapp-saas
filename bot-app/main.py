@@ -30,10 +30,12 @@ from integrations.evolution_client import (
     estado_conexao,
     excluir_instancia,
     gerar_qrcode,
+    instancia_existe,
     qrcode_para_json,
 )
 from services.configuracoes import obter_configuracao
 from services.lembretes import enviar_lembretes_pendentes
+from services.texto_utils import gerar_slug
 from services.usuarios import PAPEL_ADMIN
 
 logger = logging.getLogger(__name__)
@@ -117,7 +119,9 @@ def _validar_empresa_form(nome: str, slug: str, segmento: str) -> dict[str, str]
     if not slug:
         erros["slug"] = "Informe um slug."
     elif not SLUG_REGEX.fullmatch(slug):
-        erros["slug"] = "Use apenas letras minúsculas, números e hífens."
+        sugestao = gerar_slug(nome or slug)
+        dica = f" Sugestão: {sugestao}" if sugestao else ""
+        erros["slug"] = f"Use apenas letras minúsculas, números e hífens (sem acentos ou espaços).{dica}"
     if not segmento:
         erros["segmento"] = "Informe o segmento."
     return erros
@@ -293,6 +297,17 @@ async def onboarding_configurar_submit(request: Request, db: Session = Depends(g
 
     nome_instancia = draft["slug"]
     webhook_url = f"{settings.public_base_url}/webhook?token={quote(settings.webhook_secret)}"
+
+    if await instancia_existe(nome_instancia):
+        return _draft_error_response(
+            request,
+            "onboarding/setup.html",
+            400,
+            title="Configuração do WhatsApp",
+            step=2,
+            draft={**draft, **dados},
+            errors={"geral": f"Já existe uma instância de WhatsApp com o identificador '{nome_instancia}'. Volte e escolha outro slug."},
+        )
 
     try:
         await criar_instancia(nome_instancia, dados["telefone_whatsapp"], webhook_url)

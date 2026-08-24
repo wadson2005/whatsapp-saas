@@ -80,6 +80,22 @@ async def estado_conexao(nome_instancia: str) -> str:
     return resultado.get("instance", {}).get("state", "close")
 
 
+async def instancia_existe(nome_instancia: str) -> bool:
+    """Verifica se já existe uma instância com esse nome na Evolution API.
+
+    Usado antes de `criar_instancia` para dar uma mensagem clara quando o slug
+    escolhido já tem uma instância associada (a própria Evolution API responde
+    só "Forbidden" nesse caso, sem dizer o motivo). Se a Evolution API estiver
+    inacessível, retorna `False` — `criar_instancia` vai falhar logo em seguida
+    com o erro de conectividade real.
+    """
+    try:
+        await estado_conexao(nome_instancia)
+    except EvolutionAPIError:
+        return False
+    return True
+
+
 def qrcode_para_json(qrcode: dict | None) -> str:
     """Serializa o resultado de `gerar_qrcode` para embutir num <script type="application/json">.
 
