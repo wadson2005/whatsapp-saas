@@ -4,6 +4,10 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ## [Unreleased]
 
+### Alterado (copywriting da landing page)
+
+- Reescrita completa dos textos de `templates/site/landing.html` (hero, seção de identificação com o problema — nova —, "como funciona", "o que o bot faz", FAQ e CTA final). Antes de mexer em qualquer texto, foi feito um levantamento das funcionalidades realmente implementadas (README, `docs/architecture.md`, `conversa.py`, `services/agenda.py`) para garantir que cada afirmação da página corresponde a um comportamento real do sistema — inclusive a remoção da frase "Só o que já está implementado — sem promessa vazia" (uma nota interna que vazou pro texto público) e a descoberta de que `_empresa_horario_disponivel()` em `conversa.py` está morta (nunca chamada) — por isso a página não afirma que o bot "responde de acordo com o horário configurado" fora do que já é real (validação de horário/almoço/dias indisponíveis na hora de marcar um agendamento, isso sim implementado em `services/agenda.py`).
+
 ### Corrigido (auditoria da reformulação de onboarding)
 
 - `POST /admin/empresas/cadastrar`: se a linha do usuário na sessão não existisse mais no banco, `vincular_empresa` estourava `AttributeError` (500) **depois** de já ter criado a instância na Evolution API e a `Empresa` — deixando os dois órfãos. Usuário agora é buscado e validado antes de qualquer criação.
