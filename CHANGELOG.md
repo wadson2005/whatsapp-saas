@@ -4,6 +4,19 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ## [Unreleased]
 
+### Corrigido (auditoria da reformulação de onboarding)
+
+- `POST /admin/empresas/cadastrar`: se a linha do usuário na sessão não existisse mais no banco, `vincular_empresa` estourava `AttributeError` (500) **depois** de já ter criado a instância na Evolution API e a `Empresa` — deixando os dois órfãos. Usuário agora é buscado e validado antes de qualquer criação.
+- `POST /onboarding`: corrida entre duas contas cadastradas com o mesmo e-mail ao mesmo tempo (a pre-checagem não é atômica com o `commit`) resultava em 500 em vez da mensagem "já existe uma conta com esse e-mail". Agora captura `IntegrityError`.
+- Empresas que já existiam (e já estavam `ativo=True`) antes da migration de `ativado_em` ficavam com esse campo nulo — na primeira pausa, o painel mostraria "nunca configurado" em vez de "pausado". Migration agora faz backfill (`ativado_em = criado_em` para quem já estava ativo).
+- `/admin/dashboard` não tinha nenhuma indicação de configuração pendente pra quem já tem empresa (só o hub isolado tinha) — reaproveitada a mesma lógica de status (`_status_configuracao_bot`) num card no topo do dashboard.
+- Hub `/admin/configurar-bot` mostrava a mesma mensagem ("Tudo pronto pra ativar") tanto pra quem nunca ativou quanto pra quem só pausou — agora distingue usando `ativado_em`, já existente mas não aproveitado nessa tela.
+
+### Alterado
+
+- **Reformulação completa da jornada de onboarding, landing page e ativação do bot.** `/` deixou de redirecionar pra login/onboarding e virou uma landing page pública de verdade (hero, como funciona, benefícios reais, FAQ, CTAs separados de "criar conta"/"entrar"). `/onboarding` deixou de cadastrar empresa — agora só cria a conta da pessoa (nome, e-mail, senha); a empresa é cadastrada depois, já logada, em `/admin/empresas/cadastrar` (novo). `usuarios_painel.empresa_id` passou a ser opcional (migration `ALTER COLUMN ... DROP NOT NULL` em Postgres) — um usuário pode existir sem empresa vinculada; nesse estado, `/admin/dashboard` mostra um CTA único ("Cadastrar minha empresa") e qualquer outra rota do painel redireciona de volta pra lá (guard centralizado em `require_admin`, sem precisar editar rota por rota). Empresas passam a nascer com `ativo=False` — **conectar o WhatsApp não ativa o bot sozinho** — e um novo hub `/admin/configurar-bot` mostra o checklist real (mensagens do bot, serviços, horários) até tudo estar pronto pra apertar "Ativar bot" (`POST /admin/empresas/{id}/ativar`/`/pausar`, acessível também ao admin da própria empresa, não só ao superadmin). Novo campo `Empresa.ativado_em` distingue "nunca configurado" de "pausado depois de já ter estado no ar". Removidas as rotas/templates antigos `/onboarding/configurar`, `/onboarding/conectar*` e `/onboarding/sucesso` — o fluxo de QR code passou a reaproveitar só `/admin/empresas/{id}/conectar`, já existente, eliminando a duplicação entre as duas versões paralelas de conectar o WhatsApp.
+- Instruções passo a passo (abrir WhatsApp → Dispositivos conectados → Conectar dispositivo → escanear), tratamento de expiração do QR code (~55s, com botão pra gerar um novo) e erro visível quando "gerar novo código" falha (antes falhava em silêncio) em `templates/partials/qrcode_connect.html`.
+
 ### Adicionado
 
 - Slug da empresa é gerado automaticamente a partir do nome digitado (JS no onboarding público e em `/admin/empresas/nova`) — remove acentos, espaços e símbolos, convertendo para o formato exigido (`a-z0-9-`) sem o usuário precisar entender a regra. Se o slug for editado manualmente, o preenchimento automático para de sobrescrever. Quando um slug inválido ainda chega ao servidor, a mensagem de erro agora sugere um valor pronto para usar.

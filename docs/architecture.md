@@ -105,15 +105,36 @@ Criar uma empresa cria e conecta a instância na Evolution API automaticamente �
 - `estado_conexao(nome)` — `GET /instance/connectionState/{instance}`, retorna `open`/`connecting`/`close`.
 - `excluir_instancia(nome)` — `DELETE /instance/delete/{instance}`, usado só para desfazer uma criação parcial (nunca levanta exceção — é sempre uma limpeza best-effort).
 
-**Onboarding** (`main.py`): o nome da instância deixou de ser digitado — é sempre igual ao `slug` da empresa (já validado único). Em `POST /onboarding/configurar`, a ordem importa: primeiro chama `criar_instancia`; só grava `Empresa`, `Servico` e o `UsuarioPainel` (`papel="admin"`) no banco se isso funcionar. Se a criação no banco falhar depois (ex.: `IntegrityError`), `excluir_instancia` desfaz a instância já criada — evita empresa cadastrada sem bot funcionando ou instância órfã na Evolution. O e-mail do admin é checado contra duplicidade antes mesmo de chamar a Evolution API (mesma lógica do slug no passo 1), para não gastar uma chamada externa com um formulário que já vai falhar. Ao concluir, a sessão já é autenticada como esse usuário (mesmas chaves de sessão de `admin.login_submit`) — o fluxo vai para `/onboarding/conectar` (QR/código de pareamento, polling em `/onboarding/conectar/status` a cada ~3s até `state == "open"`) e, depois, direto para o dashboard, sem passar por `/admin/login`.
-
-**Painel** (`admin.py`): `POST /admin/empresas/nova` segue a mesma lógica do onboarding — nome da instância = `slug`, `criar_instancia` roda antes de gravar a `Empresa`, e um `IntegrityError` no commit desfaz a instância via `excluir_instancia`. O formulário não pede mais o nome da instância (campo removido); depois de criar, redireciona direto para `/admin/empresas/{id}/conectar` para escanear o QR. Essa rota também é reusada para reconectar uma empresa já existente cuja sessão do WhatsApp caiu — celular trocado, dispositivo desvinculado etc. Restrito a `require_papel_admin`/`require_superadmin` (`load_empresa` garante que não dá para reconectar a instância de outra empresa).
+**Cadastro de empresa** (`admin.py`, tanto `POST /admin/empresas/nova` — superadmin — quanto `POST /admin/empresas/cadastrar` — self-service — seguem a mesma lógica): nome da instância = `slug` (já validado único), `criar_instancia` roda antes de gravar a `Empresa`, e um `IntegrityError` no commit desfaz a instância via `excluir_instancia`. Depois de criar, redireciona direto para `/admin/empresas/{id}/conectar` para escanear o QR. Essa rota também é reusada para reconectar uma empresa já existente cuja sessão do WhatsApp caiu — celular trocado, dispositivo desvinculado etc. Restrito a `require_papel_admin`/`require_superadmin` (`load_empresa` garante que não dá para reconectar a instância de outra empresa). Depois de conectar, o próximo destino é sempre `/admin/configurar-bot` (ver seção "Configuração guiada do bot").
 
 **Slug e checagem de instância duplicada**: o campo Slug é preenchido automaticamente a partir do Nome via JS (`removerAcentos`/`slugify` inline no template — sem lib externa), tanto no onboarding público quanto em `/admin/empresas/nova`; parar de auto-preencher assim que o usuário edita o campo manualmente. No servidor, antes de chamar `criar_instancia`, `integrations.evolution_client.instancia_existe()` consulta `GET /instance/connectionState/{nome}` — se responder sem erro, já existe uma instância com esse nome (situação real encontrada em produção: uma tentativa anterior criou a instância na Evolution API mas o processo caiu antes de salvar a `Empresa`, deixando uma instância órfã que bloqueava qualquer nova tentativa com o mesmo slug, e a Evolution API só respondia "Forbidden" sem explicar o motivo). Se `instancia_existe` retornar `True`, a resposta é imediata e explícita, sem gastar uma chamada de criação que a Evolution API ia recusar de qualquer forma.
 
 O HTML/JS de exibir o QR e fazer o polling é um único partial (`templates/partials/qrcode_connect.html`) incluído tanto pelo onboarding quanto pelo painel — o QR é desenhado no navegador (lib `qrcode-generator` via CDN) a partir do campo `code`; o `pairingCode` é sempre mostrado como texto, como alternativa que não depende de nenhuma lib de imagem.
 
 Requer a variável `PUBLIC_BASE_URL` (URL pública do bot) para montar a URL de webhook passada à Evolution API na criação da instância.
+
+## Ativação do bot e configuração guiada
+
+`Empresa.ativo` é o único interruptor que decide se o webhook processa mensagens (`main.py`: `Empresa.filter_by(evolution_instance_name=X, ativo=True)`) — é o mesmo campo que `scripts/pausar.py`/`retomar.py` já alteravam. Empresas nascem com `ativo=False` (tanto em `/admin/empresas/nova` quanto em `/admin/empresas/cadastrar`): **conectar o WhatsApp não liga o atendimento sozinho**, evita um bot respondendo cliente real com zero serviço cadastrado. `Empresa.ativado_em` (nullable) é setado na primeira vez que `ativo` vira `True` e nunca mais é limpo — existe só pra distinguir, na UI, "nunca configurado" (`ativado_em is None`) de "pausado depois de já ter estado no ar" (`ativado_em` setado, `ativo=False`).
+
+`POST /admin/empresas/{id}/ativar` e `/pausar` (`require_papel_admin`, ou seja, admin da própria empresa ou superadmin) são as únicas formas de mudar `ativo` pelo painel além do `/toggle` do superadmin em `/admin/empresas` (que também ficou marcando `ativado_em`).
+
+**Critério de "pronto pra ativar"**, verificado contra o comportamento real do código antes de decidir (não é arbitrário):
+
+- **WhatsApp conectado** (`estado_conexao() == "open"`) — óbvio, sem isso não há canal.
+- **Pelo menos um serviço ativo** — `conversa._mostrar_lista_servicos()` não crasha com zero serviços (responde "no momento não tem serviços ativos... peça pro administrador"), mas isso é um bot inútil pro cliente final, então continua sendo pré-requisito real de ativação.
+- Mensagens customizáveis (`mensagem_boas_vindas`, `mensagem_fora_horario`, `mensagem_atendimento_humano`, `mensagem_encerramento`) e horários **não bloqueiam** — todas passam por `_empresa_mensagem(empresa, campo, texto_padrão)` com fallback seguro em `conversa.py`, e horário já nasce com default (`08:00`–`18:00`, todos os dias). Ficam como "recomendado", não obrigatório.
+
+`GET /admin/configurar-bot` (`admin.py::configurar_bot`) é o hub que mostra esse checklist — calculado ao vivo a cada acesso por `_status_configuracao_bot(db, empresa)` (nenhum campo de "etapa atual" persistido; o estado é sempre derivado de dados reais: existe instância? está conectada? quantos serviços ativos? alguma mensagem customizada preenchida?). Duas sub-telas dedicadas, focadas só nos campos que representam (não reaproveitam o formulário grande de `empresa_form.html`, que mistura nome/slug/segmento com tudo mais):
+
+- `/admin/configurar-bot/atendimento` — as 4 mensagens customizáveis citadas acima.
+- `/admin/configurar-bot/horarios` — `horario_abertura`/`fechamento`, `intervalo_entre_atendimentos_minutos`, `dias_indisponiveis`, `datas_indisponiveis`.
+
+O passo de serviços reaproveita `/admin/servicos` e `/admin/servicos/novo` direto (CRUD já pronto) — só ganha uma faixa de contexto (`?voltar=configurar-bot`) com link de volta pro hub, em vez de duplicar a tela.
+
+`_status_configuracao_bot()` também é reaproveitada por `/admin/dashboard`: quando a empresa da sessão ainda não está `ativo`, o dashboard normal (métricas) ganha um card no topo com o mesmo status e um link "Continuar configuração" — sem isso, quem já tinha empresa cadastrada só via esse aviso entrando manualmente no hub. Pra não pagar o custo de uma chamada à Evolution API em toda carga do dashboard, esse card só é calculado quando `not empresa.ativo`; empresa já ativa mostra só um badge estático "Bot ativo", sem round-trip externo.
+
+**Pausado vs. nunca ativado, na prática**: o hub usa `empresa.ativado_em` pra diferenciar a cópia — "Tudo pronto pra ativar" (primeira vez) vira "Seu bot está pausado" / "Reativar bot" quando `ativado_em` já está setado, mesmo com os mesmos pré-requisitos técnicos satisfeitos.
 
 ## Configurações pelo painel
 
@@ -138,7 +159,15 @@ O painel tem dois tipos de login, resolvidos nessa ordem em `admin.login_submit`
    - `admin`: acesso completo aos dados **da própria empresa** — serviços, conhecimento, clientes, agendamentos, configurações da empresa (`/admin/empresas/{id}/editar`) e gestão de outros usuários da mesma empresa (`/admin/usuarios`).
    - `operador`: cobre o dia a dia (dashboard, clientes, agenda, atendimento, insights) mas não cria/edita/exclui serviços ou conhecimento, não gerencia usuários e não edita os dados da empresa.
 
-A sessão guarda `is_superadmin`, `usuario_empresa_id` e `usuario_papel`. Duas dependências do FastAPI leem isso: `require_superadmin` (bloqueia tudo que não seja o login da plataforma) e `require_papel_admin` (bloqueia apenas o papel `operador`; superadmin sempre passa).
+A sessão guarda `is_superadmin`, `usuario_empresa_id` e `usuario_papel`. Três dependências do FastAPI leem isso, empilhadas: `require_autenticado` (só exige sessão logada) → `require_admin` (exige sessão logada **e** vinculada a uma empresa, exceto superadmin) → `require_superadmin`/`require_papel_admin` (adicionam a checagem de papel em cima de `require_admin`).
+
+### Conta sem empresa
+
+`usuarios_painel.empresa_id` é `nullable` — uma pessoa pode criar conta (`/onboarding`) sem ter empresa nenhuma ainda. Isso existe pra separar "criar minha conta" de "cadastrar minha empresa" na jornada (ver `docs/architecture.md#configuração-guiada-do-bot` e o fluxo abaixo), sem exigir suporte completo a múltiplas empresas por usuário — hoje o único caminho pra sair desse estado é `POST /admin/empresas/cadastrar`, que vincula a empresa recém-criada ao usuário autenticado (`services/usuarios.vincular_empresa`, seta `papel="admin"`) e não pode ser chamado de novo por quem já tem empresa.
+
+O guard fica centralizado em `require_admin` (`admin.py`): se a sessão está autenticada, não é superadmin e `usuario_empresa_id` é `None`, levanta `EmpresaNaoVinculada`, capturada por um exception handler que redireciona pra `/admin/dashboard` — **sem precisar editar rota por rota**, já que praticamente todas as rotas do painel dependem de `require_admin` (direta ou indiretamente, via `require_papel_admin`/`require_superadmin`). As únicas duas rotas que usam o guard mais leve `require_autenticado` (sem essa checagem) são `/admin/dashboard` (onde mora o estado vazio) e `/admin/empresas/cadastrar` (a própria saída do estado) — nelas, entrar em loop de redirecionamento não seria possível de outro jeito.
+
+`/admin/dashboard`, quando a sessão não tem empresa e não é superadmin, renderiza `admin/dashboard_sem_empresa.html` (só a mensagem de boas-vindas + botão "Cadastrar minha empresa") em vez do dashboard de métricas normal.
 
 **Isolamento por empresa é aplicado uma única vez, não rota a rota.** `_query_empresa_id()` — já usada por quase toda rota de listagem/filtro para ler o `empresa_id` da query string — passou a checar primeiro a sessão: se o usuário está preso a uma empresa, o valor da sessão prevalece e o parâmetro da URL é ignorado. Isso faz o isolamento valer automaticamente em todas as rotas que já dependiam desse helper, sem precisar editar cada uma. Para rotas que carregam um recurso específico por id (`load_empresa`, `load_servico`, `load_cliente`, `load_agendamento`, `load_conhecimento`, `load_solicitacao`, `load_usuario` — todas em `admin.py`), a checagem entra no próprio loader: se o recurso pertence a outra empresa, a resposta é 404, não 403 — evita confirmar para um usuário escopado que um id de outra empresa existe.
 
@@ -156,7 +185,7 @@ Formulários de criação/edição não confiam no `empresa_id` submetido quando
 | `empresa_conhecimento` | Perguntas e respostas cadastradas por empresa |
 | `conversas_iniciadas` | Log mínimo (empresa, telefone, data) usado só para métricas de conversão — o estado da conversa em si vive no Redis |
 | `configuracao_sistema` | Linha única (`id=1`) com as configurações operacionais editáveis pelo painel |
-| `usuarios_painel` | Login por empresa (`email` + senha com hash), com papel `admin` ou `operador` |
+| `usuarios_painel` | Login (`email` + senha com hash), papel `admin` ou `operador` — `empresa_id` é opcional (conta pode existir sem empresa vinculada ainda, ver seção "Conta sem empresa") |
 
 O isolamento é multi-tenant por coluna `empresa_id` em todas as tabelas de negócio — a mesma base atende várias empresas sem misturar dados.
 
@@ -178,6 +207,10 @@ Duas decisões de definição, documentadas aqui porque não são óbvias só ol
 ## Compatibilidade SQLite / PostgreSQL
 
 Os testes rodam contra SQLite (arquivo temporário por teste) e a produção contra PostgreSQL. `core/schema.py` usa `Base.metadata.create_all()` do SQLAlchemy (já portável) para criar tabelas novas, e uma migration manual idempotente (`_add_column_if_missing`) para adicionar colunas em bancos já existentes. Qualquer literal booleano usado nessa migration manual passa por `core/db_compat.sql_bool()`, que gera `TRUE`/`FALSE` — a forma que funciona nos dois bancos (SQLite aceita esses literais desde a versão 3.23; `1`/`0` funcionam no SQLite mas quebram no PostgreSQL, que exige um booleano de verdade no `DEFAULT` de uma coluna `BOOLEAN`).
+
+Alterar a **nulabilidade** de uma coluna existente (não só adicionar uma nova) é o único caso que foge desse padrão até agora: `usuarios_painel.empresa_id` passou de `NOT NULL` para nullable (`_permitir_usuario_sem_empresa` em `core/schema.py`) via `ALTER TABLE ... DROP NOT NULL`, guardado atrás de `conn.dialect.name == "postgresql"` — SQLite não suporta `ALTER COLUMN` (nem precisa: bancos de teste são sempre recriados do zero a partir do modelo atual, que já declara a coluna nullable).
+
+**Backfill de dado existente** é o outro caso fora do padrão "só adiciona coluna": ao introduzir `empresas.ativado_em`, uma empresa que já estava `ativo=True` antes desse campo existir (ex.: em produção) ficaria com `ativado_em=NULL` — quebrando a distinção pausado/nunca-ativado na primeira vez que fosse pausada. `_backfill_ativado_em()` roda um `UPDATE empresas SET ativado_em = criado_em WHERE ativo = TRUE AND ativado_em IS NULL` logo depois de adicionar a coluna — idempotente (só afeta linhas ainda nulas, então rodar de novo em todo restart não faz nada da segunda vez em diante).
 
 ## Segurança
 

@@ -13,6 +13,27 @@
   </div>
 </div>
 
+{% if empresa and status_bot %}
+<div class="panel-card p-3 p-lg-4 mb-4 d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-3">
+  <div>
+    <div class="fw-semibold mb-1">
+      {% if status_bot.pronto_para_ativar %}🚀 Sua empresa está pronta pra ativar o bot{% else %}🔒 Configuração do bot ainda incompleta{% endif %}
+    </div>
+    <div class="text-secondary small">
+      {% if not status_bot.whatsapp_conectado %}Falta conectar o WhatsApp{% if status_bot.total_servicos_ativos == 0 %} e cadastrar pelo menos um serviço{% endif %}.
+      {% elif status_bot.total_servicos_ativos == 0 %}Falta cadastrar pelo menos um serviço.
+      {% else %}WhatsApp conectado e serviços cadastrados — falta só ativar.{% endif %}
+    </div>
+  </div>
+  <a href="/admin/configurar-bot" class="btn btn-brand text-nowrap">Continuar configuração</a>
+</div>
+{% elif empresa and empresa.ativo %}
+<div class="panel-card p-3 p-lg-4 mb-4 d-flex justify-content-between align-items-center gap-3">
+  <span class="badge text-bg-success">Bot ativo</span>
+  <a href="/admin/configurar-bot" class="btn btn-outline-secondary btn-sm text-nowrap">Gerenciar configuração</a>
+</div>
+{% endif %}
+
 <div class="panel-card p-3 p-lg-4 mb-4">
   <form method="get" action="/admin/dashboard" class="row g-3 align-items-end">
     <div class="col-12 col-lg-5">

@@ -28,7 +28,7 @@ def listar_usuarios(db, empresa_id: int | None):
     return query.all()
 
 
-def criar_usuario(db, empresa_id: int, nome: str, email: str, senha: str, papel: str) -> UsuarioPainel:
+def criar_usuario(db, nome: str, email: str, senha: str, papel: str, empresa_id: int | None = None) -> UsuarioPainel:
     if papel not in PAPEIS_PERMITIDOS:
         raise ValueError("Papel inválido")
     usuario = UsuarioPainel(
@@ -40,6 +40,15 @@ def criar_usuario(db, empresa_id: int, nome: str, email: str, senha: str, papel:
         ativo=True,
     )
     db.add(usuario)
+    db.commit()
+    db.refresh(usuario)
+    return usuario
+
+
+def vincular_empresa(db, usuario: UsuarioPainel, empresa_id: int) -> UsuarioPainel:
+    """Associa um usuário sem empresa à empresa recém-criada, tornando-o admin dela."""
+    usuario.empresa_id = empresa_id
+    usuario.papel = PAPEL_ADMIN
     db.commit()
     db.refresh(usuario)
     return usuario

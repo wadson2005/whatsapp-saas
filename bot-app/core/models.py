@@ -40,6 +40,7 @@ class Empresa(Base):
     mensagem_sem_horarios = Column(String)
     mensagem_confirmacao = Column(String)
     ativo = Column(Boolean, default=True)
+    ativado_em = Column(DateTime, nullable=True)
     criado_em = Column(DateTime, default=datetime.utcnow)
 
     servicos = relationship("Servico", back_populates="empresa")
@@ -81,7 +82,7 @@ class UsuarioPainel(Base):
     __tablename__ = "usuarios_painel"
 
     id = Column(Integer, primary_key=True)
-    empresa_id = Column(Integer, ForeignKey("empresas.id"), nullable=False)
+    empresa_id = Column(Integer, ForeignKey("empresas.id"), nullable=True)
     nome = Column(String, nullable=False)
     email = Column(String, unique=True, nullable=False)
     senha_hash = Column(String, nullable=False)

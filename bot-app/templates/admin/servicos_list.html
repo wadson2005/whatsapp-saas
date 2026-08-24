@@ -1,6 +1,12 @@
 {% extends 'admin/base.html' %}
 {% block content %}
 {% set pode_editar = is_superadmin or usuario_papel == 'admin' %}
+{% if request.query_params.get('voltar') == 'configurar-bot' %}
+<div class="alert alert-info border-0 d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+  <span>Você está configurando o bot — cadastre os serviços que seus clientes vão poder agendar.</span>
+  <a href="/admin/configurar-bot" class="btn btn-sm btn-outline-primary">&larr; Voltar para a configuração</a>
+</div>
+{% endif %}
 <div class="d-flex flex-column flex-lg-row justify-content-between align-items-start align-items-lg-center gap-3 mb-4">
   <div>
     <h1 class="section-title mb-1">Serviços</h1>
@@ -71,7 +77,12 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="6" class="text-center text-secondary py-4">Nenhum serviço cadastrado.</td>
+          <td colspan="6" class="text-center py-5">
+            <p class="text-secondary mb-3">Nenhum serviço cadastrado ainda. O bot precisa de pelo menos um serviço ativo pra conseguir oferecer algo pra seus clientes.</p>
+            {% if pode_editar %}
+            <a class="btn btn-brand" href="/admin/servicos/novo{% if selected_empresa_id %}?empresa_id={{ selected_empresa_id }}{% endif %}">Adicionar primeiro serviço</a>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>

@@ -1,0 +1,64 @@
+{% extends 'admin/base.html' %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-xl-8">
+    <div class="panel-card p-3 p-lg-4">
+      <div class="mb-4">
+        <h1 class="section-title mb-1">Cadastrar minha empresa</h1>
+        <p class="text-secondary mb-0">Só o essencial pra começar — dá pra completar o resto depois de conectar o WhatsApp.</p>
+      </div>
+      <form method="post" action="{{ action_url }}" class="row g-3">
+        <div class="col-12 col-lg-6">
+          <label class="form-label" for="campo-nome">Nome da empresa</label>
+          <input type="text" name="nome" id="campo-nome" class="form-control" required value="{{ empresa.nome if empresa else '' }}" />
+        </div>
+        <div class="col-12 col-lg-6">
+          <label class="form-label" for="campo-slug">Slug</label>
+          <input type="text" name="slug" id="campo-slug" class="form-control" required value="{{ empresa.slug if empresa else '' }}" />
+          <div class="form-text">Gerado automaticamente a partir do nome — só letras minúsculas, números e hífens (sem acentos, espaços ou símbolos).</div>
+        </div>
+        <div class="col-12 col-lg-6">
+          <label class="form-label" for="campo-segmento">Segmento</label>
+          <input type="text" name="segmento" id="campo-segmento" class="form-control" required placeholder="clínica, barbearia, restaurante..." value="{{ empresa.segmento if empresa else '' }}" />
+        </div>
+        <div class="col-12 col-lg-6">
+          <label class="form-label" for="campo-telefone">Telefone WhatsApp</label>
+          <input type="text" name="telefone_whatsapp" id="campo-telefone" class="form-control" required placeholder="5586999999999" value="{{ empresa.telefone_whatsapp if empresa else '' }}" />
+          <div class="form-text">DDI + DDD + número, só dígitos (ex.: 55 86 99999-9999 vira 5586999999999). É o número que vai atender pelo bot — a conexão é feita no próximo passo.</div>
+        </div>
+        <div class="col-12 d-flex justify-content-end gap-2 pt-2">
+          <a href="/admin/dashboard" class="btn btn-outline-secondary">Cancelar</a>
+          <button type="submit" class="btn btn-brand">Cadastrar e continuar</button>
+        </div>
+      </form>
+      <script>
+        (function () {
+          var nomeInput = document.getElementById('campo-nome');
+          var slugInput = document.getElementById('campo-slug');
+          if (!nomeInput || !slugInput) return;
+
+          function removerAcentos(texto) {
+            return texto.normalize('NFD').split('').filter(function (ch) {
+              var codigo = ch.charCodeAt(0);
+              return codigo < 0x0300 || codigo > 0x036f;
+            }).join('');
+          }
+
+          function slugify(texto) {
+            return removerAcentos(texto)
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-+|-+$/g, '');
+          }
+
+          var editadoManualmente = slugInput.value.trim().length > 0;
+          slugInput.addEventListener('input', function () { editadoManualmente = true; });
+          nomeInput.addEventListener('input', function () {
+            if (!editadoManualmente) slugInput.value = slugify(nomeInput.value);
+          });
+        })();
+      </script>
+    </div>
+  </div>
+</div>
+{% endblock %}

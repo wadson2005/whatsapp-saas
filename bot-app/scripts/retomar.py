@@ -1,4 +1,5 @@
 import sys
+from datetime import datetime
 
 from core.config import settings
 from core.database import SessionLocal
@@ -12,6 +13,8 @@ try:
         sys.exit(1)
 
     empresa.ativo = True
+    if not empresa.ativado_em:
+        empresa.ativado_em = datetime.utcnow()
     db.commit()
     print(f"Bot da '{empresa.nome}' está ATIVO novamente.")
 finally:

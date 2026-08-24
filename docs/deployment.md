@@ -45,7 +45,7 @@ docker compose up --build -d
 
 O healthcheck do container (`/readyz`) só considera o serviço saudável depois de validar a conexão com PostgreSQL e Redis.
 
-`PUBLIC_BASE_URL` precisa ser o domínio público real (o mesmo do Caddy, passo 4) — é ela que a aplicação usa para dizer à Evolution API para onde mandar o webhook ao criar uma instância pelo onboarding ou pelo painel (`/admin/empresas/{id}/conectar`). Se o domínio ainda não estiver resolvendo/com TLS válido quando alguém passar pelo onboarding, a instância é criada mas as mensagens não chegam até o domínio ficar no ar.
+`PUBLIC_BASE_URL` precisa ser o domínio público real (o mesmo do Caddy, passo 4) — é ela que a aplicação usa para dizer à Evolution API para onde mandar o webhook ao criar uma instância, seja pelo cadastro de empresa self-service (`/admin/empresas/cadastrar`) ou pelo painel (`/admin/empresas/nova`, `/admin/empresas/{id}/conectar`). Se o domínio ainda não estiver resolvendo/com TLS válido quando alguém cadastrar a empresa, a instância é criada mas as mensagens não chegam até o domínio ficar no ar.
 
 ### 3. Supervisionar com systemd
 
@@ -110,7 +110,7 @@ cd bot-app && python -m scripts.retomar
 ## Checklist antes de ir para produção
 
 - [ ] `ADMIN_PASSWORD`, `SESSION_SECRET_KEY` e `WEBHOOK_SECRET` gerados com valores fortes (não os exemplos do `.env.example`).
-- [ ] `PUBLIC_BASE_URL` configurado com o domínio público real e o Caddy já respondendo nele — necessário antes de cadastrar a primeira empresa pelo onboarding.
+- [ ] `PUBLIC_BASE_URL` configurado com o domínio público real e o Caddy já respondendo nele — necessário antes de cadastrar a primeira empresa (`/admin/empresas/cadastrar` ou `/admin/empresas/nova`).
 - [ ] `DATABASE_URL` apontando para PostgreSQL (não SQLite) — o schema é compatível com os dois, mas SQLite não é recomendado para múltiplos workers/produção.
 - [ ] Template de lembrete aprovado no Meta Business Manager.
 - [ ] Postgres e Redis expostos apenas em `127.0.0.1` (não publicamente).

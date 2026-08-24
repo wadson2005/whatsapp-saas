@@ -54,3 +54,34 @@ def ensure_schema():
         _add_column_if_missing(conn, "agendamentos", "lembrete_enviado_em TIMESTAMP")
         _add_column_if_missing(conn, "usuarios_painel", "reset_token_hash VARCHAR")
         _add_column_if_missing(conn, "usuarios_painel", "reset_token_expira_em TIMESTAMP")
+        _add_column_if_missing(conn, "empresas", "ativado_em TIMESTAMP")
+        _backfill_ativado_em(conn)
+        _permitir_usuario_sem_empresa(conn)
+
+
+def _backfill_ativado_em(conn):
+    """Preenche `ativado_em` pra empresas que já estavam ativas antes desse campo existir.
+
+    Sem isso, uma empresa que já estava no ar (ex.: em produção antes desse
+    deploy) ficaria com `ativado_em=NULL` — e a primeira vez que fosse pausada
+    pareceria "nunca configurada" em vez de "pausada". Idempotente: só afeta
+    linhas com `ativado_em` ainda nulo, então rodar de novo não faz nada.
+    """
+    conn.execute(
+        text("UPDATE empresas SET ativado_em = criado_em WHERE ativo = :ativo AND ativado_em IS NULL"),
+        {"ativo": True},
+    )
+
+
+def _permitir_usuario_sem_empresa(conn):
+    """Remove o NOT NULL de usuarios_painel.empresa_id em bancos já existentes.
+
+    Necessário para o fluxo de conta separada de empresa (usuário se cadastra
+    antes de ter uma empresa). SQLite não suporta ALTER COLUMN — mas bancos
+    SQLite (sempre recriados do zero nos testes) já nascem com a coluna
+    nullable a partir do modelo atual, então essa migration só faz sentido
+    (e só é aplicada) em PostgreSQL.
+    """
+    if conn.dialect.name != "postgresql":
+        return
+    conn.execute(text("ALTER TABLE usuarios_painel ALTER COLUMN empresa_id DROP NOT NULL"))

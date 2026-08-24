@@ -3,9 +3,7 @@ import hmac
 import logging
 import re
 from contextlib import suppress
-from datetime import time
 from pathlib import Path
-from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -15,35 +13,22 @@ from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.templating import Jinja2Templates
 
-from admin import admin_app, parse_optional_float
+from admin import admin_app
 from conversa import processar_mensagem
 from core.config import settings
 from core.database import SessionLocal, get_db
-from core.models import Empresa, Servico, UsuarioPainel
+from core.models import Empresa, UsuarioPainel
 from core.redis_client import redis_cliente
 from core.schema import ensure_schema
-from core.security import hash_senha
-from integrations.evolution_client import (
-    EvolutionAPIConexaoError,
-    EvolutionAPIError,
-    criar_instancia,
-    estado_conexao,
-    excluir_instancia,
-    gerar_qrcode,
-    instancia_existe,
-    qrcode_para_json,
-)
 from services.configuracoes import obter_configuracao
 from services.lembretes import enviar_lembretes_pendentes
-from services.texto_utils import gerar_slug
-from services.usuarios import PAPEL_ADMIN
+from services.usuarios import PAPEL_OPERADOR, criar_usuario
 
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
-SLUG_REGEX = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 app = FastAPI()
@@ -51,429 +36,91 @@ app.add_middleware(SessionMiddleware, secret_key=settings.session_secret_key, sa
 app.mount("/admin", admin_app)
 
 
-def _empresa_cadastrada(db: Session) -> bool:
-    return db.query(Empresa.id).first() is not None
-
-
-def _normalizar_telefone(telefone: str | None) -> str:
-    return re.sub(r"\D+", "", telefone or "")
-
-
-def _parse_horario(texto: str) -> time:
-    texto_limpo = (texto or "").strip()
-    if not texto_limpo:
-        raise ValueError("Informe um horário no formato HH:MM.")
-    try:
-        return time.fromisoformat(texto_limpo)
-    except ValueError as exc:
-        raise ValueError("Informe um horário válido no formato HH:MM.") from exc
-
-
-def _contexto_onboarding(request: Request, **kwargs):
-    contexto = {
-        "request": request,
-        "message": request.query_params.get("message"),
-        "error": request.query_params.get("error"),
-    }
-    contexto.update(kwargs)
-    return contexto
-
-
-def _draft_onboarding(request: Request) -> dict:
-    return dict(request.session.get("onboarding_draft", {}))
-
-
-def _save_onboarding_draft(request: Request, data: dict) -> None:
-    request.session["onboarding_draft"] = data
-
-
-def _clear_onboarding_draft(request: Request) -> None:
-    request.session.pop("onboarding_draft", None)
-
-
-def _save_onboarding_result(request: Request, data: dict) -> None:
-    request.session["onboarding_result"] = data
-
-
-def _draft_error_response(request: Request, template_name: str, status_code: int, **kwargs):
-    return templates.TemplateResponse(
-        request,
-        template_name,
-        _contexto_onboarding(request, **kwargs),
-        status_code=status_code,
-    )
-
-
-def _redirecionar_inicio(request: Request, db: Session) -> RedirectResponse:
-    if request.session.get("admin_authenticated"):
-        return RedirectResponse(url="/admin/dashboard", status_code=303)
-
-    existe_empresa = _empresa_cadastrada(db)
-    return RedirectResponse(url="/admin/login" if existe_empresa else "/onboarding", status_code=303)
-
-
-def _validar_empresa_form(nome: str, slug: str, segmento: str) -> dict[str, str]:
-    erros: dict[str, str] = {}
-    if not nome:
-        erros["nome"] = "Informe o nome da empresa."
-    if not slug:
-        erros["slug"] = "Informe um slug."
-    elif not SLUG_REGEX.fullmatch(slug):
-        sugestao = gerar_slug(nome or slug)
-        dica = f" Sugestão: {sugestao}" if sugestao else ""
-        erros["slug"] = f"Use apenas letras minúsculas, números e hífens (sem acentos ou espaços).{dica}"
-    if not segmento:
-        erros["segmento"] = "Informe o segmento."
-    return erros
-
-
-def _validar_configuracao_form(form) -> tuple[dict[str, str], dict]:
+def _validar_conta_form(form) -> tuple[dict[str, str], dict]:
     erros: dict[str, str] = {}
     dados = {
-        "telefone_whatsapp": _normalizar_telefone(form.get("telefone_whatsapp")),
-        "horario_abertura": (form.get("horario_abertura") or "08:00").strip(),
-        "horario_fechamento": (form.get("horario_fechamento") or "18:00").strip(),
-        "intervalo_entre_atendimentos_minutos": (form.get("intervalo_entre_atendimentos_minutos") or "15").strip(),
-        "primeiro_servico_nome": (form.get("primeiro_servico_nome") or "").strip(),
-        "primeiro_servico_duracao_minutos": (form.get("primeiro_servico_duracao_minutos") or "30").strip(),
-        "primeiro_servico_preco": (form.get("primeiro_servico_preco") or "").strip(),
-        "admin_nome": (form.get("admin_nome") or "").strip(),
-        "admin_email": (form.get("admin_email") or "").strip().lower(),
+        "nome": (form.get("nome") or "").strip(),
+        "email": (form.get("email") or "").strip().lower(),
     }
-    admin_senha = form.get("admin_senha") or ""
+    senha = form.get("senha") or ""
 
-    if len(dados["telefone_whatsapp"]) < 10:
-        erros["telefone_whatsapp"] = "Informe um telefone WhatsApp válido."
-    if not dados["primeiro_servico_nome"]:
-        erros["primeiro_servico_nome"] = "Informe o primeiro serviço."
+    if not dados["nome"]:
+        erros["nome"] = "Informe seu nome."
+    if not dados["email"]:
+        erros["email"] = "Informe seu e-mail."
+    elif not EMAIL_REGEX.fullmatch(dados["email"]):
+        erros["email"] = "Informe um e-mail válido."
+    if len(senha) < 8:
+        erros["senha"] = "A senha deve ter pelo menos 8 caracteres."
 
-    if not dados["admin_nome"]:
-        erros["admin_nome"] = "Informe seu nome."
-    if not dados["admin_email"]:
-        erros["admin_email"] = "Informe seu e-mail de acesso."
-    elif not EMAIL_REGEX.fullmatch(dados["admin_email"]):
-        erros["admin_email"] = "Informe um e-mail válido."
-    if len(admin_senha) < 8:
-        erros["admin_senha"] = "A senha deve ter pelo menos 8 caracteres."
-
-    try:
-        horario_abertura = _parse_horario(dados["horario_abertura"])
-    except ValueError as exc:
-        erros["horario_abertura"] = str(exc)
-        horario_abertura = None
-
-    try:
-        horario_fechamento = _parse_horario(dados["horario_fechamento"])
-    except ValueError as exc:
-        erros["horario_fechamento"] = str(exc)
-        horario_fechamento = None
-
-    try:
-        intervalo = int(dados["intervalo_entre_atendimentos_minutos"])
-        if intervalo < 0:
-            raise ValueError
-    except ValueError:
-        erros["intervalo_entre_atendimentos_minutos"] = "Informe um intervalo válido em minutos."
-        intervalo = None
-
-    try:
-        duracao = int(dados["primeiro_servico_duracao_minutos"])
-        if duracao < 1:
-            raise ValueError
-    except ValueError:
-        erros["primeiro_servico_duracao_minutos"] = "Informe uma duração válida em minutos."
-        duracao = None
-
-    preco = None
-    if dados["primeiro_servico_preco"]:
-        try:
-            preco = parse_optional_float(dados["primeiro_servico_preco"])
-        except ValueError:
-            erros["primeiro_servico_preco"] = "Informe um preço válido."
-
-    if horario_abertura and horario_fechamento and horario_abertura >= horario_fechamento:
-        erros["horario_fechamento"] = "O fechamento precisa ser depois da abertura."
-
-    dados["horario_abertura"] = horario_abertura.strftime("%H:%M") if horario_abertura else dados["horario_abertura"]
-    dados["horario_fechamento"] = horario_fechamento.strftime("%H:%M") if horario_fechamento else dados["horario_fechamento"]
-    dados["intervalo_entre_atendimentos_minutos"] = intervalo
-    dados["primeiro_servico_duracao_minutos"] = duracao
-    dados["primeiro_servico_preco"] = preco
-    dados["admin_senha"] = admin_senha
+    dados["senha"] = senha
     return erros, dados
 
 
-@app.get("/", response_class=HTMLResponse)
-async def raiz(request: Request, db: Session = Depends(get_db)):
-    return _redirecionar_inicio(request, db)
-
-
-@app.get("/onboarding", response_class=HTMLResponse)
-async def onboarding_inicio(request: Request, db: Session = Depends(get_db)):
-    if _empresa_cadastrada(db):
-        return RedirectResponse(url="/admin/login?message=Sua empresa já está configurada.", status_code=303)
-
-    return templates.TemplateResponse(
-        request,
-        "onboarding/setup.html",
-        _contexto_onboarding(
-            request,
-            title="Configurar empresa",
-            step=1,
-            draft=_draft_onboarding(request),
-            errors={},
-        ),
-    )
-
-
-@app.post("/onboarding")
-async def onboarding_empresa_submit(request: Request, db: Session = Depends(get_db)):
-    form = await request.form()
-    nome = (form.get("nome") or "").strip()
-    slug = (form.get("slug") or "").strip().lower()
-    segmento = (form.get("segmento") or "").strip()
-
-    erros = _validar_empresa_form(nome, slug, segmento)
-
-    if slug and db.query(Empresa.id).filter(Empresa.slug == slug).first():
-        erros["slug"] = "Já existe uma empresa com esse slug."
-
-    if erros:
-        return _draft_error_response(
-            request,
-            "onboarding/setup.html",
-            400,
-            title="Configurar empresa",
-            step=1,
-            draft={"nome": nome, "slug": slug, "segmento": segmento},
-            errors=erros,
-        )
-
-    _save_onboarding_draft(request, {"nome": nome, "slug": slug, "segmento": segmento})
-    return RedirectResponse(url="/onboarding/configurar", status_code=303)
-
-
-@app.get("/onboarding/configurar", response_class=HTMLResponse)
-async def onboarding_configurar(request: Request):
-    draft = _draft_onboarding(request)
-    if not draft:
-        return RedirectResponse(url="/onboarding", status_code=303)
-
-    return templates.TemplateResponse(
-        request,
-        "onboarding/setup.html",
-        _contexto_onboarding(
-            request,
-            title="Configuração do WhatsApp",
-            step=2,
-            draft=draft,
-            errors={},
-        ),
-    )
-
-
-@app.post("/onboarding/configurar")
-async def onboarding_configurar_submit(request: Request, db: Session = Depends(get_db)):
-    draft = _draft_onboarding(request)
-    if not draft:
-        return RedirectResponse(url="/onboarding", status_code=303)
-
-    form = await request.form()
-    erros, dados = _validar_configuracao_form(form)
-
-    if not erros.get("admin_email") and db.query(UsuarioPainel.id).filter_by(email=dados["admin_email"]).first():
-        erros["admin_email"] = "Já existe um usuário com esse e-mail."
-
-    if erros:
-        return _draft_error_response(
-            request,
-            "onboarding/setup.html",
-            400,
-            title="Configuração do WhatsApp",
-            step=2,
-            draft={**draft, **dados},
-            errors=erros,
-        )
-
-    nome_instancia = draft["slug"]
-    webhook_url = f"{settings.public_base_url}/webhook?token={quote(settings.webhook_secret)}"
-
-    if await instancia_existe(nome_instancia):
-        return _draft_error_response(
-            request,
-            "onboarding/setup.html",
-            400,
-            title="Configuração do WhatsApp",
-            step=2,
-            draft={**draft, **dados},
-            errors={"geral": f"Já existe uma instância de WhatsApp com o identificador '{nome_instancia}'. Volte e escolha outro slug."},
-        )
-
-    try:
-        await criar_instancia(nome_instancia, dados["telefone_whatsapp"], webhook_url)
-    except EvolutionAPIConexaoError:
-        return _draft_error_response(
-            request,
-            "onboarding/setup.html",
-            502,
-            title="Configuração do WhatsApp",
-            step=2,
-            draft={**draft, **dados},
-            errors={"geral": "Não foi possível conectar ao serviço de WhatsApp agora. Tente novamente em alguns instantes."},
-        )
-    except EvolutionAPIError as exc:
-        return _draft_error_response(
-            request,
-            "onboarding/setup.html",
-            502,
-            title="Configuração do WhatsApp",
-            step=2,
-            draft={**draft, **dados},
-            errors={"geral": f"O WhatsApp recusou a conexão: {exc}. Verifique o número informado e tente novamente."},
-        )
-
-    try:
-        empresa = Empresa(
-            nome=draft["nome"],
-            slug=draft["slug"],
-            segmento=draft["segmento"],
-            telefone_whatsapp=dados["telefone_whatsapp"],
-            evolution_instance_name=nome_instancia,
-            horario_abertura=dados["horario_abertura"],
-            horario_fechamento=dados["horario_fechamento"],
-            intervalo_entre_atendimentos_minutos=dados["intervalo_entre_atendimentos_minutos"],
-            ativo=True,
-        )
-        db.add(empresa)
-        db.flush()
-
-        servico = Servico(
-            empresa_id=empresa.id,
-            nome=dados["primeiro_servico_nome"],
-            duracao_minutos=dados["primeiro_servico_duracao_minutos"],
-            preco=dados["primeiro_servico_preco"],
-            ativo=True,
-        )
-        db.add(servico)
-
-        usuario = UsuarioPainel(
-            empresa_id=empresa.id,
-            nome=dados["admin_nome"],
-            email=dados["admin_email"],
-            senha_hash=hash_senha(dados["admin_senha"]),
-            papel=PAPEL_ADMIN,
-            ativo=True,
-        )
-        db.add(usuario)
-
-        db.commit()
-        db.refresh(empresa)
-        db.refresh(usuario)
-    except IntegrityError:
-        db.rollback()
-        logger.exception("Conflito ao salvar empresa do onboarding (slug=%s)", draft.get("slug"))
-        await excluir_instancia(nome_instancia)
-        return _draft_error_response(
-            request,
-            "onboarding/setup.html",
-            400,
-            title="Configuração do WhatsApp",
-            step=2,
-            draft={**draft, **dados},
-            errors={"geral": "Esse identificador de empresa acabou de ser usado por outro cadastro. Volte e escolha outro."},
-        )
-
-    _clear_onboarding_draft(request)
+def _autenticar_sessao(request: Request, usuario: UsuarioPainel) -> None:
     request.session["admin_authenticated"] = True
     request.session["admin_username"] = usuario.nome
     request.session["is_superadmin"] = False
     request.session["usuario_id"] = usuario.id
     request.session["usuario_empresa_id"] = usuario.empresa_id
     request.session["usuario_papel"] = usuario.papel
-    _save_onboarding_result(
-        request,
-        {
-            "empresa_nome": empresa.nome,
-            "servico_nome": dados["primeiro_servico_nome"],
-            "admin_url": "/admin/dashboard",
-        },
-    )
-    request.session["onboarding_instancia"] = nome_instancia
-    request.session["onboarding_numero"] = dados["telefone_whatsapp"]
-    return RedirectResponse(url="/onboarding/conectar", status_code=303)
 
 
-@app.get("/onboarding/conectar", response_class=HTMLResponse)
-async def onboarding_conectar(request: Request):
-    nome_instancia = request.session.get("onboarding_instancia")
-    numero = request.session.get("onboarding_numero")
-    if not nome_instancia or not numero:
-        return RedirectResponse(url="/onboarding", status_code=303)
+@app.get("/", response_class=HTMLResponse)
+async def raiz(request: Request):
+    if request.session.get("admin_authenticated"):
+        return RedirectResponse(url="/admin/dashboard", status_code=303)
+    return templates.TemplateResponse(request, "site/landing.html", {"request": request})
 
-    qrcode_erro = None
-    try:
-        qrcode = await gerar_qrcode(nome_instancia, numero)
-    except EvolutionAPIError:
-        qrcode = None
-        qrcode_erro = "Não foi possível gerar o código de conexão agora. Tente novamente."
+
+@app.get("/onboarding", response_class=HTMLResponse)
+async def onboarding_inicio(request: Request):
+    if request.session.get("admin_authenticated"):
+        return RedirectResponse(url="/admin/dashboard", status_code=303)
 
     return templates.TemplateResponse(
         request,
-        "onboarding/conectar.html",
-        _contexto_onboarding(
+        "onboarding/setup.html",
+        {"request": request, "title": "Criar minha conta", "draft": {}, "errors": {}},
+    )
+
+
+@app.post("/onboarding")
+async def onboarding_submit(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    erros, dados = _validar_conta_form(form)
+
+    if not erros.get("email") and db.query(UsuarioPainel.id).filter_by(email=dados["email"]).first():
+        erros["email"] = "Já existe uma conta com esse e-mail."
+
+    if erros:
+        return templates.TemplateResponse(
             request,
-            title="Conectar WhatsApp",
-            qrcode=qrcode,
-            qrcode_json=qrcode_para_json(qrcode),
-            qrcode_erro=qrcode_erro,
-            status_url="/onboarding/conectar/status",
-            refresh_url="/onboarding/conectar/novo-qrcode",
-            next_url="/onboarding/sucesso",
-            skip_url="/onboarding/sucesso",
-        ),
-    )
-
-
-@app.get("/onboarding/conectar/status")
-async def onboarding_conectar_status(request: Request):
-    nome_instancia = request.session.get("onboarding_instancia")
-    if not nome_instancia:
-        raise HTTPException(status_code=404, detail="onboarding_nao_iniciado")
+            "onboarding/setup.html",
+            {"request": request, "title": "Criar minha conta", "draft": dados, "errors": erros},
+            status_code=400,
+        )
 
     try:
-        state = await estado_conexao(nome_instancia)
-    except EvolutionAPIError:
-        state = "close"
-    return {"state": state}
+        usuario = criar_usuario(db, nome=dados["nome"], email=dados["email"], senha=dados["senha"], papel=PAPEL_OPERADOR)
+    except IntegrityError:
+        db.rollback()
+        logger.exception("Conflito ao criar conta (email=%s)", dados["email"])
+        return templates.TemplateResponse(
+            request,
+            "onboarding/setup.html",
+            {
+                "request": request,
+                "title": "Criar minha conta",
+                "draft": dados,
+                "errors": {"email": "Já existe uma conta com esse e-mail."},
+            },
+            status_code=400,
+        )
 
+    _autenticar_sessao(request, usuario)
 
-@app.post("/onboarding/conectar/novo-qrcode")
-async def onboarding_conectar_novo_qrcode(request: Request):
-    nome_instancia = request.session.get("onboarding_instancia")
-    numero = request.session.get("onboarding_numero")
-    if not nome_instancia or not numero:
-        raise HTTPException(status_code=404, detail="onboarding_nao_iniciado")
-
-    try:
-        qrcode = await gerar_qrcode(nome_instancia, numero)
-    except EvolutionAPIError:
-        raise HTTPException(status_code=502, detail="falha_ao_gerar_qrcode")
-    return qrcode
-
-
-@app.get("/onboarding/sucesso", response_class=HTMLResponse)
-async def onboarding_sucesso(request: Request):
-    resultado = request.session.get("onboarding_result")
-    if not resultado:
-        return RedirectResponse(url="/onboarding", status_code=303)
-
-    request.session.pop("onboarding_instancia", None)
-    request.session.pop("onboarding_numero", None)
-    return templates.TemplateResponse(
-        request,
-        "onboarding/success.html",
-        _contexto_onboarding(request, title="Configuração concluída", result=resultado),
-    )
+    return RedirectResponse(url="/admin/dashboard", status_code=303)
 
 
 @app.get("/healthz")

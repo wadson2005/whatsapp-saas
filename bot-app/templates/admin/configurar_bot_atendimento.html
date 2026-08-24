@@ -1,0 +1,40 @@
+{% extends 'admin/base.html' %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-8">
+    <a href="/admin/configurar-bot" class="small d-inline-block mb-3">&larr; Voltar para a configuração</a>
+    <div class="panel-card p-3 p-lg-4">
+      <div class="mb-4">
+        <h1 class="section-title mb-1">Personalize o atendimento</h1>
+        <p class="text-secondary mb-0">Explique como o bot deve conversar com seus clientes. Tudo aqui é opcional — sem preencher, o bot usa uma mensagem padrão segura.</p>
+      </div>
+      <form method="post" action="/admin/configurar-bot/atendimento" class="row g-4">
+        <div class="col-12">
+          <label class="form-label fw-semibold" for="campo-boas-vindas">Mensagem de boas-vindas</label>
+          <div class="text-secondary small mb-2">Essa é a mensagem enviada quando um cliente inicia uma conversa com sua empresa.</div>
+          <textarea name="mensagem_boas_vindas" id="campo-boas-vindas" class="form-control" rows="3" placeholder="Ex.: Olá! Seja bem-vindo à Barbearia Exemplo. Posso ajudar você a agendar um horário?">{{ empresa.mensagem_boas_vindas or '' }}</textarea>
+        </div>
+        <div class="col-12">
+          <label class="form-label fw-semibold" for="campo-fora-horario">Mensagem fora do horário de atendimento</label>
+          <div class="text-secondary small mb-2">Enviada quando alguém pede para falar com um atendente humano fora do horário permitido.</div>
+          <textarea name="mensagem_fora_horario" id="campo-fora-horario" class="form-control" rows="2" placeholder="Ex.: No momento estamos fora do horário de atendimento humano. Vou te ajudar por aqui mesmo.">{{ empresa.mensagem_fora_horario or '' }}</textarea>
+        </div>
+        <div class="col-12">
+          <label class="form-label fw-semibold" for="campo-atendimento-humano">Mensagem ao encaminhar para atendimento humano</label>
+          <div class="text-secondary small mb-2">Enviada assim que o pedido de falar com uma pessoa é registrado.</div>
+          <textarea name="mensagem_atendimento_humano" id="campo-atendimento-humano" class="form-control" rows="2" placeholder="Ex.: Pronto, já registrei sua solicitação! Nossa equipe vai te chamar em breve.">{{ empresa.mensagem_atendimento_humano or '' }}</textarea>
+        </div>
+        <div class="col-12">
+          <label class="form-label fw-semibold" for="campo-encerramento">Mensagem quando não há agendamento ativo</label>
+          <div class="text-secondary small mb-2">Usada, por exemplo, quando o cliente tenta cancelar um horário que não existe.</div>
+          <textarea name="mensagem_encerramento" id="campo-encerramento" class="form-control" rows="2" placeholder="Ex.: Não encontrei nenhum agendamento seu em aberto.">{{ empresa.mensagem_encerramento or '' }}</textarea>
+        </div>
+        <div class="col-12 d-flex justify-content-end gap-2 pt-2">
+          <a href="/admin/configurar-bot" class="btn btn-outline-secondary">Cancelar</a>
+          <button type="submit" class="btn btn-brand">Salvar e continuar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

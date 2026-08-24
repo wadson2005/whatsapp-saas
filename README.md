@@ -2,7 +2,7 @@
 
 Plataforma de atendimento e agendamento via WhatsApp para pequenos negócios (clínicas, barbearias, salões, restaurantes), com um único código-base atendendo várias empresas ao mesmo tempo. Cada empresa tem seu próprio catálogo de serviços, horários, base de conhecimento e configurações — isolados por `empresa_id` no mesmo banco.
 
-[![Testes](https://img.shields.io/badge/testes-129%20passing-brightgreen)]()
+[![Testes](https://img.shields.io/badge/testes-139%20passing-brightgreen)]()
 [![Python](https://img.shields.io/badge/python-3.12-blue)]()
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688)]()
 [![Licença](https://img.shields.io/badge/licença-MIT-blue)](LICENSE)
@@ -28,7 +28,9 @@ Documentação mais profunda:
 
 ## Principais funcionalidades
 
-- **Onboarding público** (`/onboarding`) — cadastra empresa, primeiro serviço, cria o usuário `admin` da empresa (já autenticado no painel ao final) e cria/conecta a instância do WhatsApp automaticamente (QR code na hora), sem terminal, sem tocar na Evolution API manualmente e sem depender de cadastro manual de usuário depois.
+- **Landing page pública** (`/`) — explica o produto pra quem chega de fora, sem pedir login administrativo. CTAs para criar conta ou entrar, separados do fluxo comum de clientes.
+- **Conta separada de empresa** — `/onboarding` cria só a conta da pessoa (nome, e-mail, senha); a empresa é cadastrada depois, já logada, em `/admin/empresas/cadastrar`. Um usuário pode existir sem empresa vinculada (`usuarios_painel.empresa_id` é opcional) — nesse estado, o dashboard mostra um CTA único ("Cadastrar minha empresa") em vez de métricas vazias, e qualquer rota do painel que dependa de uma empresa redireciona de volta pra lá.
+- **Configuração guiada do bot** (`/admin/configurar-bot`) — depois de conectar o WhatsApp, um hub central mostra o que falta (mensagens do bot, serviços, horários) com progresso calculado a partir de dados reais, sem exigir ordem fixa; o mesmo status aparece como um card no `/admin/dashboard` normal enquanto a empresa não estiver ativa. **Conectar o WhatsApp não ativa o bot sozinho** — a empresa nasce com `ativo=False` e só passa a responder mensagens depois que o próprio dono aperta "Ativar bot" (com pré-requisitos reais: WhatsApp conectado + pelo menos um serviço ativo). `ativado_em` distingue "nunca configurado" de "pausado depois de já ter estado no ar" — inclusive na cópia da tela ("Ativar bot" vs. "Reativar bot").
 - **Motor de agendamento** — valida empresa/serviço ativos, horário de funcionamento, almoço, dias indisponíveis e conflito com outros agendamentos; sugere horários alternativos automaticamente.
 - **Máquina de estados conversacional** — fluxo guiado por botões/listas interativas, com atalhos globais (`menu`, `cancelar`, `reagendar`) e fallback contextual (nunca deixa o cliente sem resposta).
 - **Lembretes automáticos** — ciclo assíncrono embutido no processo, envia lembrete via template aprovado da Meta antes do horário marcado, com controle de envio único por agendamento.
@@ -39,14 +41,14 @@ Documentação mais profunda:
 - **Multi-tenant real, inclusive no acesso** — isolamento por `empresa_id` em todas as tabelas de negócio; cada empresa cliente pode logar com seu próprio usuário e só enxerga os próprios dados, sem depender do acesso único da plataforma.
 - **Papéis e permissões** — usuário `admin` de uma empresa gerencia serviços, conhecimento e outros usuários da própria empresa; `operador` cobre o dia a dia (agenda, clientes, atendimento) sem acesso a exclusões, configurações ou gestão de usuários.
 - **Recuperação de senha self-service** (`/admin/esqueci-senha`) — link de redefinição por e-mail, válido por 1 hora e de uso único, sem depender de um superadmin para redefinir a senha de outro usuário.
-- **Conexão de WhatsApp sem intervenção manual na Evolution API** — criar a empresa já cria a instância e configura o webhook; se a sessão do WhatsApp cair depois (celular trocado, dispositivo desvinculado), `/admin/empresas/{id}/conectar` gera um novo QR code direto do painel.
+- **Conexão de WhatsApp sem intervenção manual na Evolution API** — criar a empresa já cria a instância e configura o webhook; a tela de QR code traz instruções passo a passo e trata expiração/erro. Se a sessão do WhatsApp cair depois (celular trocado, dispositivo desvinculado), `/admin/empresas/{id}/conectar` gera um novo QR code direto do painel.
 
 ## Diferenciais técnicos
 
 - **Compatibilidade real SQLite/PostgreSQL** — os testes rodam em SQLite e a produção em PostgreSQL contra o mesmo bootstrap de schema, sem duplicar lógica de migration (ver `core/db_compat.py`).
 - **Configuração operacional viva no banco** — token da Meta, provider de IA, antecedência de lembrete e palavra de ativação são editáveis pelo painel e valem imediatamente, sem redeploy.
 - **IA como fallback, nunca como autoridade** — a camada de IA só é consultada quando a máquina de estados e a base de conhecimento não resolvem, e nunca executa uma ação destrutiva (cancelamento, por exemplo) sem passar pela tela de confirmação normal.
-- **Suíte de testes de verdade** — 129 testes automatizados cobrindo onboarding, conversa, agendamento, lembretes, base de conhecimento, métricas, papéis/permissões e a camada de IA (com providers e Redis simulados, sem depender de serviços externos).
+- **Suíte de testes de verdade** — 139 testes automatizados cobrindo onboarding, conversa, agendamento, lembretes, base de conhecimento, métricas, papéis/permissões e a camada de IA (com providers e Redis simulados, sem depender de serviços externos).
 - **Bootstrap de schema idempotente** — cria tabelas novas e adiciona colunas em bancos já existentes automaticamente, sem exigir um framework de migration para um projeto deste porte.
 
 ## Stack técnica
@@ -170,14 +172,18 @@ whatsapp-saas/
 | Método | Rota | Descrição |
 |---|---|---|
 | `POST` | `/webhook` | Recebe eventos da Evolution API e processa a mensagem |
-| `GET` | `/onboarding` | Wizard público de cadastro de empresa (cria e conecta o WhatsApp automaticamente) |
-| `GET` | `/onboarding/conectar` | QR code / código de pareamento para conectar o WhatsApp da empresa recém-criada |
+| `GET` | `/` | Landing page pública (ou redireciona pro dashboard se já autenticado) |
+| `GET`/`POST` | `/onboarding` | Cria a conta da pessoa (nome, e-mail, senha) — não pede dados de empresa |
 | `GET` | `/healthz` | Liveness check |
 | `GET` | `/readyz` | Readiness check — valida PostgreSQL e Redis |
 | `GET` | `/admin/login` | Login do painel administrativo |
-| `GET` | `/admin/dashboard` | Métricas e indicadores por período |
+| `GET` | `/admin/dashboard` | Sem empresa: CTA para cadastrar. Com empresa: métricas e indicadores por período |
+| `GET`/`POST` | `/admin/empresas/cadastrar` | Cadastro de empresa self-service (usuário autenticado sem empresa vira admin dela) |
+| `GET` | `/admin/configurar-bot` | Hub de configuração guiada — checklist com progresso real, botão de ativar/pausar o bot |
+| `GET`/`POST` | `/admin/configurar-bot/atendimento`, `/admin/configurar-bot/horarios` | Etapas guiadas de configuração (mensagens do bot, horários) |
+| `POST` | `/admin/empresas/{id}/ativar`, `/pausar` | Liga/desliga o bot no WhatsApp — nunca acontece automaticamente |
 | `GET` | `/admin/empresas`, `/admin/servicos`, `/admin/clientes` | CRUDs administrativos |
-| `GET` | `/admin/empresas/{id}/conectar` | Gera um novo QR code para reconectar o WhatsApp de uma empresa já existente |
+| `GET` | `/admin/empresas/{id}/conectar` | Gera um novo QR code para conectar/reconectar o WhatsApp de uma empresa |
 | `GET` | `/admin/conhecimento` | Base de conhecimento por empresa |
 | `GET` | `/admin/usuarios` | Gestão de usuários e papéis (admin/operador) por empresa |
 | `GET` | `/admin/insights`, `/admin/clientes-inativos` | Insights automáticos e clientes inativos |
@@ -205,6 +211,8 @@ O bot identifica a empresa pela `instance`, abre (ou recupera) o estado da conve
 - [x] Cadastro manual de cliente final direto pelo painel.
 - [x] Criação do primeiro usuário da empresa integrada ao onboarding público — o onboarding já cria o usuário `admin` da empresa e autentica no painel automaticamente, sem depender de cadastro manual.
 - [x] Recuperação de senha self-service (`/admin/esqueci-senha`) via e-mail (SMTP genérico).
+- [x] Landing page pública e conta separada de empresa — onboarding vira só criação de conta; empresa é cadastrada depois, self-service, já logado.
+- [x] Ativação explícita do bot — conectar o WhatsApp não liga o atendimento sozinho; hub de configuração guiada (`/admin/configurar-bot`) com pré-requisitos reais para ativar.
 - [ ] Cobrança recorrente (assinatura por empresa).
 - [ ] Observabilidade e auditoria mais completas (métricas operacionais, alertas).
 - [ ] Ampliar os pontos de fallback cobertos pela camada de IA e adicionar mais providers.

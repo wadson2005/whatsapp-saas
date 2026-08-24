@@ -108,6 +108,7 @@
               {% if is_superadmin %}
               <li class="nav-item"><a class="nav-link {% if request.url.path.startswith('/admin/empresas') %}active{% endif %}" href="/admin/empresas">Empresas</a></li>
               {% endif %}
+              <li class="nav-item"><a class="nav-link {% if request.url.path.startswith('/admin/configurar-bot') %}active{% endif %}" href="/admin/configurar-bot">Configurar bot</a></li>
               <li class="nav-item"><a class="nav-link {% if request.url.path.startswith('/admin/servicos') %}active{% endif %}" href="/admin/servicos">Serviços</a></li>
               <li class="nav-item"><a class="nav-link {% if request.url.path.startswith('/admin/conhecimento') %}active{% endif %}" href="/admin/conhecimento">Conhecimento</a></li>
               <li class="nav-item"><a class="nav-link {% if request.url.path == '/admin/clientes' or request.url.path.startswith('/admin/clientes/') %}active{% endif %}" href="/admin/clientes">Clientes</a></li>

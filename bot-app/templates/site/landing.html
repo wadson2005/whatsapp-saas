@@ -1,0 +1,232 @@
+{% extends 'site/base.html' %}
+{% block content %}
+
+<section class="hero-section py-5">
+  <div class="container py-4 py-lg-5">
+    <div class="row align-items-center g-5">
+      <div class="col-12 col-lg-7">
+        <h1 class="mb-3">Automatize seus agendamentos pelo WhatsApp.</h1>
+        <p class="fs-5 section-muted mb-4">
+          Seu negócio responde clientes e organiza a agenda mesmo quando você está ocupado atendendo —
+          sem precisar responder cada mensagem manualmente e sem precisar entender de tecnologia pra configurar.
+        </p>
+        <div class="d-flex flex-column flex-sm-row gap-2">
+          <a href="/onboarding" class="btn btn-brand btn-lg px-4">Criar minha conta</a>
+          <a href="/admin/login" class="btn btn-outline-secondary btn-lg px-4">Já sou cliente</a>
+        </div>
+      </div>
+      <div class="col-12 col-lg-5">
+        <div class="step-card p-4">
+          <div class="fw-bold mb-2">O que você recebe</div>
+          <ul class="mb-0 ps-3 section-muted">
+            <li class="mb-2">Um bot no seu WhatsApp que atende e agenda por você</li>
+            <li class="mb-2">Painel pra configurar serviços, horários e mensagens</li>
+            <li class="mb-2">Lembrete automático pro cliente não esquecer o horário</li>
+            <li>Você decide quando o bot fica ativo</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="py-5" id="como-funciona">
+  <div class="container py-3">
+    <h2 class="fw-bold text-center mb-2">Como funciona</h2>
+    <p class="section-muted text-center mb-5">Do cadastro até o bot atendendo de verdade, em quatro passos.</p>
+    <div class="row g-3">
+      <div class="col-12 col-md-6 col-lg-3">
+        <div class="step-card p-4">
+          <div class="step-number mb-3">1</div>
+          <h3 class="h6 fw-bold">Cadastre sua empresa</h3>
+          <p class="section-muted small mb-0">Informe os dados básicos do seu negócio — nome, telefone e o que você oferece.</p>
+        </div>
+      </div>
+      <div class="col-12 col-md-6 col-lg-3">
+        <div class="step-card p-4">
+          <div class="step-number mb-3">2</div>
+          <h3 class="h6 fw-bold">Conecte seu WhatsApp</h3>
+          <p class="section-muted small mb-0">Escaneie um QR code com o número que vai atender seus clientes. Leva menos de um minuto.</p>
+        </div>
+      </div>
+      <div class="col-12 col-md-6 col-lg-3">
+        <div class="step-card p-4">
+          <div class="step-number mb-3">3</div>
+          <h3 class="h6 fw-bold">Configure seu bot</h3>
+          <p class="section-muted small mb-0">Cadastre serviços, horários de atendimento e as mensagens que o bot vai usar.</p>
+        </div>
+      </div>
+      <div class="col-12 col-md-6 col-lg-3">
+        <div class="step-card p-4">
+          <div class="step-number mb-3">4</div>
+          <h3 class="h6 fw-bold">Deixe o bot trabalhar</h3>
+          <p class="section-muted small mb-0">Quando você ativar, o bot passa a atender e agendar pelos seus clientes automaticamente.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="py-5 bg-white border-top border-bottom" id="beneficios">
+  <div class="container py-3">
+    <h2 class="fw-bold text-center mb-2">O que o bot faz pelo seu negócio</h2>
+    <p class="section-muted text-center mb-5">Só o que já está implementado — sem promessa vazia.</p>
+    <div class="row g-3">
+      <div class="col-12 col-md-6 col-lg-4">
+        <div class="beneficio-card p-4">
+          <h3 class="h6 fw-bold">Atendimento automático</h3>
+          <p class="section-muted small mb-0">O bot conversa com o cliente, mostra os serviços disponíveis e conduz até o agendamento.</p>
+        </div>
+      </div>
+      <div class="col-12 col-md-6 col-lg-4">
+        <div class="beneficio-card p-4">
+          <h3 class="h6 fw-bold">Agenda organizada</h3>
+          <p class="section-muted small mb-0">Cada horário marcado é validado contra a agenda real — sem dois clientes caindo no mesmo horário.</p>
+        </div>
+      </div>
+      <div class="col-12 col-md-6 col-lg-4">
+        <div class="beneficio-card p-4">
+          <h3 class="h6 fw-bold">Lembrete automático</h3>
+          <p class="section-muted small mb-0">O cliente recebe um lembrete antes do horário marcado, reduzindo faltas.</p>
+        </div>
+      </div>
+      <div class="col-12 col-md-6 col-lg-4">
+        <div class="beneficio-card p-4">
+          <h3 class="h6 fw-bold">Respostas cadastradas</h3>
+          <p class="section-muted small mb-0">Cadastre perguntas frequentes do seu negócio; o bot responde exatamente o que você configurou.</p>
+        </div>
+      </div>
+      <div class="col-12 col-md-6 col-lg-4">
+        <div class="beneficio-card p-4">
+          <h3 class="h6 fw-bold">Encaminha pra um humano</h3>
+          <p class="section-muted small mb-0">Quando o cliente pede pra falar com alguém, a solicitação cai numa fila no seu painel.</p>
+        </div>
+      </div>
+      <div class="col-12 col-md-6 col-lg-4">
+        <div class="beneficio-card p-4">
+          <h3 class="h6 fw-bold">Painel simples</h3>
+          <p class="section-muted small mb-0">Serviços, horários, clientes e agendamentos num só lugar — sem precisar mexer em código.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="py-5" id="faq">
+  <div class="container py-3">
+    <h2 class="fw-bold text-center mb-5">Perguntas frequentes</h2>
+    <div class="row justify-content-center">
+      <div class="col-12 col-lg-8">
+        <div class="accordion" id="faqAccordion">
+
+          <div class="accordion-item">
+            <h3 class="accordion-header">
+              <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#faq1">
+                Preciso entender de tecnologia para usar?
+              </button>
+            </h3>
+            <div id="faq1" class="accordion-collapse collapse show" data-bs-parent="#faqAccordion">
+              <div class="accordion-body section-muted">
+                Não. O cadastro te guia passo a passo: criar sua conta, cadastrar a empresa, escanear um QR code
+                pra conectar o WhatsApp e preencher os serviços e horários. Nenhuma etapa exige conhecimento técnico.
+              </div>
+            </div>
+          </div>
+
+          <div class="accordion-item">
+            <h3 class="accordion-header">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq2">
+                Posso usar o número de WhatsApp da minha empresa?
+              </button>
+            </h3>
+            <div id="faq2" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+              <div class="accordion-body section-muted">
+                Sim. Você conecta o número que quiser usar pra atendimento — pode ser o número que já usa hoje ou um novo, dedicado só pro bot.
+              </div>
+            </div>
+          </div>
+
+          <div class="accordion-item">
+            <h3 class="accordion-header">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq3">
+                O bot começa a responder assim que eu conecto o WhatsApp?
+              </button>
+            </h3>
+            <div id="faq3" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+              <div class="accordion-body section-muted">
+                Não. Conectar o WhatsApp só liga a conexão — o bot só passa a responder de verdade depois que você
+                configura pelo menos um serviço e ativa o atendimento, quando você decidir que está pronto.
+              </div>
+            </div>
+          </div>
+
+          <div class="accordion-item">
+            <h3 class="accordion-header">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq4">
+                Posso alterar as configurações depois?
+              </button>
+            </h3>
+            <div id="faq4" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+              <div class="accordion-body section-muted">
+                Sim. Serviços, horários e as mensagens do bot ficam editáveis no painel a qualquer momento, sem precisar
+                reiniciar nada.
+              </div>
+            </div>
+          </div>
+
+          <div class="accordion-item">
+            <h3 class="accordion-header">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq5">
+                Como funciona o agendamento?
+              </button>
+            </h3>
+            <div id="faq5" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+              <div class="accordion-body section-muted">
+                O cliente conversa com o bot pelo WhatsApp, escolhe o serviço e o horário entre os disponíveis, e o
+                agendamento já cai direto na sua agenda — sem ninguém precisar responder manualmente.
+              </div>
+            </div>
+          </div>
+
+          <div class="accordion-item">
+            <h3 class="accordion-header">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq6">
+                Posso cadastrar mais de uma empresa?
+              </button>
+            </h3>
+            <div id="faq6" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+              <div class="accordion-body section-muted">
+                Hoje cada conta administra uma empresa. Se você toca mais de um negócio, entre em contato que a gente
+                configura o segundo pra você.
+              </div>
+            </div>
+          </div>
+
+          <div class="accordion-item">
+            <h3 class="accordion-header">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq7">
+                O que acontece se eu ainda não tiver configurado o bot?
+              </button>
+            </h3>
+            <div id="faq7" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+              <div class="accordion-body section-muted">
+                O painel mostra exatamente o que falta — conectar o WhatsApp, cadastrar serviços, revisar horários —
+                até tudo estar pronto pra você ativar o atendimento.
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="py-5">
+  <div class="container py-4 text-center">
+    <h2 class="fw-bold mb-3">Pronto pra automatizar seu atendimento?</h2>
+    <a href="/onboarding" class="btn btn-brand btn-lg px-5">Criar minha conta</a>
+  </div>
+</section>
+
+{% endblock %}

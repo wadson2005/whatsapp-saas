@@ -1,0 +1,48 @@
+{% extends 'admin/base.html' %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-8">
+    <a href="/admin/configurar-bot" class="small d-inline-block mb-3">&larr; Voltar para a configuração</a>
+    <div class="panel-card p-3 p-lg-4">
+      <div class="mb-4">
+        <h1 class="section-title mb-1">Configure seus horários</h1>
+        <p class="text-secondary mb-0">Em quais horários sua empresa está disponível para receber agendamentos.</p>
+      </div>
+      <form method="post" action="/admin/configurar-bot/horarios" class="row g-3">
+        <div class="col-12 col-lg-6">
+          <label class="form-label" for="campo-abertura">Horário de abertura</label>
+          <input type="time" name="horario_abertura" id="campo-abertura" class="form-control" value="{{ empresa.horario_abertura or '08:00' }}" />
+        </div>
+        <div class="col-12 col-lg-6">
+          <label class="form-label" for="campo-fechamento">Horário de fechamento</label>
+          <input type="time" name="horario_fechamento" id="campo-fechamento" class="form-control" value="{{ empresa.horario_fechamento or '18:00' }}" />
+        </div>
+        <div class="col-12">
+          <label class="form-label" for="campo-intervalo">Intervalo entre atendimentos (minutos)</label>
+          <input type="number" name="intervalo_entre_atendimentos_minutos" id="campo-intervalo" class="form-control" min="0" step="1" value="{{ empresa.intervalo_entre_atendimentos_minutos or 15 }}" />
+          <div class="form-text">Tempo mínimo entre um agendamento e outro — evita horários colados demais.</div>
+        </div>
+        <div class="col-12">
+          <hr class="my-2" />
+          <div class="fw-semibold mb-1">Dias e datas em que você não atende</div>
+          <div class="text-secondary small">Sua empresa já atende todos os dias da semana por padrão. Use os campos abaixo só para as exceções.</div>
+        </div>
+        <div class="col-12 col-lg-6">
+          <label class="form-label" for="campo-dias-indisponiveis">Dias da semana sem atendimento</label>
+          <input type="text" name="dias_indisponiveis" id="campo-dias-indisponiveis" class="form-control" placeholder="0,6" value="{{ empresa.dias_indisponiveis or '' }}" />
+          <div class="form-text">0=segunda, 6=domingo. Ex.: "0,6" = fechado às segundas e domingos.</div>
+        </div>
+        <div class="col-12 col-lg-6">
+          <label class="form-label" for="campo-datas-indisponiveis">Datas específicas sem atendimento</label>
+          <input type="text" name="datas_indisponiveis" id="campo-datas-indisponiveis" class="form-control" placeholder="2026-08-15, 2026-12-25" value="{{ empresa.datas_indisponiveis or '' }}" />
+          <div class="form-text">Feriados ou folgas pontuais, no formato AAAA-MM-DD separadas por vírgula.</div>
+        </div>
+        <div class="col-12 d-flex justify-content-end gap-2 pt-2">
+          <a href="/admin/configurar-bot" class="btn btn-outline-secondary">Cancelar</a>
+          <button type="submit" class="btn btn-brand">Salvar e continuar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

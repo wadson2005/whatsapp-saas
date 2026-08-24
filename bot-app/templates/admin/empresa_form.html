@@ -35,8 +35,8 @@
         </div>
         <div class="col-12 col-lg-6 d-flex align-items-end">
           <div class="form-check form-switch">
-            <input class="form-check-input" type="checkbox" name="ativo" id="ativo" {% if empresa is none or empresa.ativo %}checked{% endif %} />
-            <label class="form-check-label" for="ativo">Empresa ativa</label>
+            <input class="form-check-input" type="checkbox" name="ativo" id="ativo" {% if empresa and empresa.ativo %}checked{% endif %} />
+            <label class="form-check-label" for="ativo">Bot ativo (responde no WhatsApp)</label>
           </div>
         </div>
         <div class="col-12">

@@ -42,6 +42,7 @@ from services.usuarios import (
     listar_usuarios,
     redefinir_senha,
     solicitar_redefinicao_senha,
+    vincular_empresa,
 )
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,11 @@ admin_app.add_middleware(SessionMiddleware, secret_key=settings.session_secret_k
 
 
 class AdminAuthRequired(Exception):
-    """Levantada por `require_admin` quando a sessão não está autenticada."""
+    """Levantada por `require_autenticado` quando a sessão não está autenticada."""
+
+
+class EmpresaNaoVinculada(Exception):
+    """Levantada por `require_admin` quando o usuário está autenticado mas ainda não tem empresa."""
 
 
 @admin_app.exception_handler(AdminAuthRequired)
@@ -62,9 +67,22 @@ async def _admin_auth_required_handler(request: Request, exc: AdminAuthRequired)
     return RedirectResponse(url="/admin/login", status_code=303)
 
 
-def require_admin(request: Request) -> None:
+@admin_app.exception_handler(EmpresaNaoVinculada)
+async def _empresa_nao_vinculada_handler(request: Request, exc: EmpresaNaoVinculada):
+    return RedirectResponse(url="/admin/dashboard", status_code=303)
+
+
+def require_autenticado(request: Request) -> None:
+    """Só exige sessão autenticada — usado nas rotas que uma conta sem empresa ainda pode acessar."""
     if not request.session.get("admin_authenticated"):
         raise AdminAuthRequired()
+
+
+def require_admin(request: Request) -> None:
+    """Exige sessão autenticada E vinculada a uma empresa (superadmin sempre passa)."""
+    require_autenticado(request)
+    if not request.session.get("is_superadmin") and not request.session.get("usuario_empresa_id"):
+        raise EmpresaNaoVinculada()
 
 
 def require_superadmin(request: Request) -> None:
@@ -501,12 +519,23 @@ def _periodo_dashboard(request: Request) -> tuple[datetime, datetime]:
 
 
 @admin_app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+async def dashboard(request: Request, db: Session = Depends(get_db), _: None = Depends(require_autenticado)):
+    if not request.session.get("is_superadmin") and not request.session.get("usuario_empresa_id"):
+        return templates.TemplateResponse(
+            request,
+            "admin/dashboard_sem_empresa.html",
+            page_context(request, title="Bem-vindo"),
+        )
+
     empresa_id = _query_empresa_id(request)
     data_inicio, data_fim = _periodo_dashboard(request)
 
     empresas, empresa = _base_empresa_contexto(db, request, empresa_id)
     metricas_periodo = calcular_metricas(db, empresa_id, data_inicio, data_fim)
+
+    status_bot = None
+    if empresa and not empresa.ativo:
+        status_bot = await _status_configuracao_bot(db, empresa)
 
     total_empresas = None
     empresas_ativas = None
@@ -562,6 +591,8 @@ async def dashboard(request: Request, db: Session = Depends(get_db), _: None = D
         page_context(
             request,
             title="Dashboard",
+            empresa=empresa,
+            status_bot=status_bot,
             empresas=empresas,
             selected_empresa_id=empresa.id if empresa else empresa_id,
             total_empresas=total_empresas,
@@ -716,6 +747,133 @@ async def empresa_new_submit(request: Request, db: Session = Depends(get_db), _:
     )
 
 
+@admin_app.get("/empresas/cadastrar", response_class=HTMLResponse)
+async def empresa_cadastrar_page(request: Request, _: None = Depends(require_autenticado)):
+    if request.session.get("is_superadmin") or request.session.get("usuario_empresa_id"):
+        return RedirectResponse(url="/admin/dashboard", status_code=303)
+
+    return templates.TemplateResponse(
+        request,
+        "admin/empresa_cadastrar.html",
+        page_context(request, title="Cadastrar minha empresa", empresa=None, action_url="/admin/empresas/cadastrar"),
+    )
+
+
+@admin_app.post("/empresas/cadastrar")
+async def empresa_cadastrar_submit(request: Request, db: Session = Depends(get_db), _: None = Depends(require_autenticado)):
+    if request.session.get("is_superadmin") or request.session.get("usuario_empresa_id"):
+        return RedirectResponse(url="/admin/dashboard", status_code=303)
+
+    usuario = db.query(UsuarioPainel).filter_by(id=request.session.get("usuario_id")).first()
+    if not usuario:
+        request.session.clear()
+        return RedirectResponse(url="/admin/login", status_code=303)
+
+    form = await request.form()
+    dados = form_namespace(form)
+
+    erro_validacao = None
+    if not dados.slug or not SLUG_REGEX.fullmatch(dados.slug):
+        sugestao = gerar_slug(dados.nome or dados.slug or "")
+        dica = f" Sugestão: {sugestao}" if sugestao else ""
+        erro_validacao = f"Use um slug com apenas letras minúsculas, números e hífens (sem acentos ou espaços).{dica}"
+    elif db.query(Empresa.id).filter(Empresa.slug == dados.slug).first():
+        erro_validacao = "Já existe uma empresa com esse slug."
+    elif not _normalizar_telefone(dados.telefone_whatsapp):
+        erro_validacao = "Informe o telefone WhatsApp para conectar a empresa."
+
+    if erro_validacao:
+        return templates.TemplateResponse(
+            request,
+            "admin/empresa_cadastrar.html",
+            page_context(request, title="Cadastrar minha empresa", empresa=dados, action_url="/admin/empresas/cadastrar", error=erro_validacao),
+            status_code=400,
+        )
+
+    nome_instancia = dados.slug
+    telefone_normalizado = _normalizar_telefone(dados.telefone_whatsapp)
+    webhook_url = f"{settings.public_base_url}/webhook?token={quote(settings.webhook_secret)}"
+
+    if await instancia_existe(nome_instancia):
+        return templates.TemplateResponse(
+            request,
+            "admin/empresa_cadastrar.html",
+            page_context(
+                request,
+                title="Cadastrar minha empresa",
+                empresa=dados,
+                action_url="/admin/empresas/cadastrar",
+                error=f"Já existe uma instância de WhatsApp com o identificador '{nome_instancia}'. Escolha outro slug.",
+            ),
+            status_code=400,
+        )
+
+    try:
+        await criar_instancia(nome_instancia, telefone_normalizado, webhook_url)
+    except EvolutionAPIConexaoError:
+        return templates.TemplateResponse(
+            request,
+            "admin/empresa_cadastrar.html",
+            page_context(
+                request,
+                title="Cadastrar minha empresa",
+                empresa=dados,
+                action_url="/admin/empresas/cadastrar",
+                error="Não foi possível conectar ao serviço de WhatsApp agora. Tente novamente em alguns instantes.",
+            ),
+            status_code=502,
+        )
+    except EvolutionAPIError as exc:
+        return templates.TemplateResponse(
+            request,
+            "admin/empresa_cadastrar.html",
+            page_context(
+                request,
+                title="Cadastrar minha empresa",
+                empresa=dados,
+                action_url="/admin/empresas/cadastrar",
+                error=f"O WhatsApp recusou a conexão: {exc}. Verifique o número informado e tente novamente.",
+            ),
+            status_code=502,
+        )
+
+    try:
+        empresa = Empresa()
+        _aplicar_dados_empresa(empresa, dados)
+        empresa.telefone_whatsapp = telefone_normalizado
+        empresa.evolution_instance_name = nome_instancia
+        empresa.ativo = False
+        db.add(empresa)
+        db.commit()
+        db.refresh(empresa)
+
+        vincular_empresa(db, usuario, empresa.id)
+    except IntegrityError:
+        db.rollback()
+        logger.exception("Conflito ao salvar empresa self-service (slug=%s)", dados.slug)
+        await excluir_instancia(nome_instancia)
+        return templates.TemplateResponse(
+            request,
+            "admin/empresa_cadastrar.html",
+            page_context(
+                request,
+                title="Cadastrar minha empresa",
+                empresa=dados,
+                action_url="/admin/empresas/cadastrar",
+                error="Esse slug acabou de ser usado por outro cadastro. Escolha outro.",
+            ),
+            status_code=400,
+        )
+
+    request.session["usuario_empresa_id"] = usuario.empresa_id
+    request.session["usuario_papel"] = usuario.papel
+
+    return RedirectResponse(
+        url=f"/admin/empresas/{empresa.id}/conectar?message=Empresa criada com sucesso. Escaneie o QR code para conectar o WhatsApp.",
+        status_code=303,
+    )
+
+
 @admin_app.get("/empresas/{empresa_id}/editar", response_class=HTMLResponse)
 async def empresa_edit_page(request: Request, empresa_id: int, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
     empresa = load_empresa(db, request, empresa_id)
@@ -762,9 +920,31 @@ async def empresa_edit_submit(request: Request, empresa_id: int, db: Session = D
 async def empresa_toggle(request: Request, empresa_id: int, db: Session = Depends(get_db), _: None = Depends(require_superadmin)):
     empresa = load_empresa(db, request, empresa_id)
     empresa.ativo = not empresa.ativo
+    if empresa.ativo and not empresa.ativado_em:
+        empresa.ativado_em = datetime.utcnow()
     db.commit()
 
     return RedirectResponse(url="/admin/empresas?message=Status da empresa atualizado.", status_code=303)
+
+
+@admin_app.post("/empresas/{empresa_id}/ativar")
+async def empresa_ativar(request: Request, empresa_id: int, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    empresa = load_empresa(db, request, empresa_id)
+    empresa.ativo = True
+    if not empresa.ativado_em:
+        empresa.ativado_em = datetime.utcnow()
+    db.commit()
+
+    return RedirectResponse(url="/admin/configurar-bot?message=Bot ativado. Seus clientes já podem agendar pelo WhatsApp.", status_code=303)
+
+
+@admin_app.post("/empresas/{empresa_id}/pausar")
+async def empresa_pausar(request: Request, empresa_id: int, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    empresa = load_empresa(db, request, empresa_id)
+    empresa.ativo = False
+    db.commit()
+
+    return RedirectResponse(url="/admin/configurar-bot?message=Bot pausado. Ele não vai responder no WhatsApp até você ativar de novo.", status_code=303)
 
 
 @admin_app.get("/empresas/{empresa_id}/conectar", response_class=HTMLResponse)
@@ -790,7 +970,7 @@ async def empresa_conectar_page(request: Request, empresa_id: int, db: Session =
             qrcode_erro=qrcode_erro,
             status_url=f"/admin/empresas/{empresa_id}/conectar/status",
             refresh_url=f"/admin/empresas/{empresa_id}/conectar/novo-qrcode",
-            next_url=f"/admin/empresas/{empresa_id}/editar?message=WhatsApp conectado com sucesso.",
+            next_url="/admin/configurar-bot?message=WhatsApp conectado! Agora vamos configurar como seu bot deve atender os clientes.",
         ),
     )
 
@@ -813,6 +993,123 @@ async def empresa_conectar_novo_qrcode(request: Request, empresa_id: int, db: Se
     except EvolutionAPIError:
         raise HTTPException(status_code=502, detail="falha_ao_gerar_qrcode")
     return qrcode
+
+
+async def _status_configuracao_bot(db, empresa: Empresa) -> SimpleNamespace:
+    """Checklist de configuração calculado ao vivo — reaproveitado pelo hub e pelo dashboard."""
+    whatsapp_conectado = False
+    whatsapp_erro = False
+    if empresa.evolution_instance_name:
+        try:
+            whatsapp_conectado = await estado_conexao(empresa.evolution_instance_name) == "open"
+        except EvolutionAPIError:
+            whatsapp_erro = True
+
+    total_servicos_ativos = (
+        db.query(func.count(Servico.id))
+        .filter_by(empresa_id=empresa.id, ativo=True)
+        .filter(Servico.excluido_em.is_(None))
+        .scalar()
+        or 0
+    )
+    atendimento_personalizado = bool(empresa.mensagem_boas_vindas or empresa.mensagem_fora_horario or empresa.mensagem_atendimento_humano or empresa.mensagem_encerramento)
+    pronto_para_ativar = whatsapp_conectado and total_servicos_ativos > 0
+
+    return SimpleNamespace(
+        whatsapp_conectado=whatsapp_conectado,
+        whatsapp_erro=whatsapp_erro,
+        total_servicos_ativos=total_servicos_ativos,
+        atendimento_personalizado=atendimento_personalizado,
+        pronto_para_ativar=pronto_para_ativar,
+    )
+
+
+@admin_app.get("/configurar-bot", response_class=HTMLResponse)
+async def configurar_bot(request: Request, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+    empresa_id = _query_empresa_id(request)
+    _, empresa = _base_empresa_contexto(db, request, empresa_id)
+    if not empresa:
+        return RedirectResponse(url="/admin/empresas", status_code=303)
+
+    status = await _status_configuracao_bot(db, empresa)
+
+    return templates.TemplateResponse(
+        request,
+        "admin/configurar_bot.html",
+        page_context(
+            request,
+            title="Configurar meu bot",
+            empresa=empresa,
+            whatsapp_conectado=status.whatsapp_conectado,
+            whatsapp_erro=status.whatsapp_erro,
+            total_servicos_ativos=status.total_servicos_ativos,
+            atendimento_personalizado=status.atendimento_personalizado,
+            pronto_para_ativar=status.pronto_para_ativar,
+        ),
+    )
+
+
+@admin_app.get("/configurar-bot/atendimento", response_class=HTMLResponse)
+async def configurar_bot_atendimento_page(request: Request, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    empresa_id = _query_empresa_id(request)
+    _, empresa = _base_empresa_contexto(db, request, empresa_id)
+    if not empresa:
+        return RedirectResponse(url="/admin/configurar-bot", status_code=303)
+
+    return templates.TemplateResponse(
+        request,
+        "admin/configurar_bot_atendimento.html",
+        page_context(request, title="Personalize o atendimento", empresa=empresa),
+    )
+
+
+@admin_app.post("/configurar-bot/atendimento")
+async def configurar_bot_atendimento_submit(request: Request, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    empresa_id = _query_empresa_id(request)
+    _, empresa = _base_empresa_contexto(db, request, empresa_id)
+    if not empresa:
+        return RedirectResponse(url="/admin/configurar-bot", status_code=303)
+
+    form = await request.form()
+    empresa.mensagem_boas_vindas = parse_optional_str(form.get("mensagem_boas_vindas"))
+    empresa.mensagem_fora_horario = parse_optional_str(form.get("mensagem_fora_horario"))
+    empresa.mensagem_atendimento_humano = parse_optional_str(form.get("mensagem_atendimento_humano"))
+    empresa.mensagem_encerramento = parse_optional_str(form.get("mensagem_encerramento"))
+    db.commit()
+
+    return RedirectResponse(url="/admin/configurar-bot?message=Atendimento personalizado com sucesso.", status_code=303)
+
+
+@admin_app.get("/configurar-bot/horarios", response_class=HTMLResponse)
+async def configurar_bot_horarios_page(request: Request, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    empresa_id = _query_empresa_id(request)
+    _, empresa = _base_empresa_contexto(db, request, empresa_id)
+    if not empresa:
+        return RedirectResponse(url="/admin/configurar-bot", status_code=303)
+
+    return templates.TemplateResponse(
+        request,
+        "admin/configurar_bot_horarios.html",
+        page_context(request, title="Configure seus horários", empresa=empresa),
+    )
+
+
+@admin_app.post("/configurar-bot/horarios")
+async def configurar_bot_horarios_submit(request: Request, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    empresa_id = _query_empresa_id(request)
+    _, empresa = _base_empresa_contexto(db, request, empresa_id)
+    if not empresa:
+        return RedirectResponse(url="/admin/configurar-bot", status_code=303)
+
+    form = await request.form()
+    empresa.horario_abertura = (form.get("horario_abertura") or "08:00").strip()
+    empresa.horario_fechamento = (form.get("horario_fechamento") or "18:00").strip()
+    empresa.intervalo_entre_atendimentos_minutos = parse_optional_int(form.get("intervalo_entre_atendimentos_minutos")) or 15
+    empresa.dias_indisponiveis = (form.get("dias_indisponiveis") or "").strip()
+    empresa.datas_indisponiveis = (form.get("datas_indisponiveis") or "").strip()
+    db.commit()
+
+    return RedirectResponse(url="/admin/configurar-bot?message=Horários atualizados com sucesso.", status_code=303)
 
 
 @admin_app.get("/servicos", response_class=HTMLResponse)

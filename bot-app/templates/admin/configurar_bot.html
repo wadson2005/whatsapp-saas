@@ -1,0 +1,114 @@
+{% extends 'admin/base.html' %}
+{% block content %}
+{% set pode_editar = is_superadmin or usuario_papel == 'admin' %}
+<div class="row justify-content-center">
+  <div class="col-12 col-xl-9">
+    <div class="mb-4">
+      <h1 class="section-title mb-1">Configure seu bot</h1>
+      <p class="text-secondary mb-0">{{ empresa.nome }} — vá em qualquer ordem, o que já foi feito fica marcado.</p>
+    </div>
+
+    <div class="panel-card p-3 p-lg-4 mb-3">
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <span class="badge rounded-pill text-bg-success">✓</span>
+        <span class="fw-semibold">Empresa cadastrada</span>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        {% if whatsapp_conectado %}
+        <span class="badge rounded-pill text-bg-success">✓</span>
+        <span class="fw-semibold">WhatsApp conectado</span>
+        {% else %}
+        <span class="badge rounded-pill text-bg-secondary">○</span>
+        <span class="fw-semibold">WhatsApp ainda não conectado</span>
+        {% if pode_editar %}
+        <a href="/admin/empresas/{{ empresa.id }}/conectar" class="btn btn-sm btn-brand ms-auto">Conectar WhatsApp</a>
+        {% endif %}
+        {% endif %}
+      </div>
+      {% if whatsapp_erro %}
+      <div class="text-danger small mt-2">Não foi possível confirmar o status da conexão agora. Tente atualizar a página em instantes.</div>
+      {% endif %}
+    </div>
+
+    <div class="panel-card p-3 p-lg-4 mb-3 d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-3">
+      <div class="d-flex align-items-center gap-2">
+        <span class="badge rounded-pill {% if atendimento_personalizado %}text-bg-success{% else %}text-bg-secondary{% endif %}">{% if atendimento_personalizado %}✓{% else %}○{% endif %}</span>
+        <div>
+          <div class="fw-semibold">Personalize o atendimento</div>
+          <div class="text-secondary small">Explique como o bot deve conversar com seus clientes (recomendado, não obrigatório).</div>
+        </div>
+      </div>
+      {% if pode_editar %}
+      <a href="/admin/configurar-bot/atendimento" class="btn btn-outline-primary text-nowrap">Configurar</a>
+      {% endif %}
+    </div>
+
+    <div class="panel-card p-3 p-lg-4 mb-3 d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-3">
+      <div class="d-flex align-items-center gap-2">
+        <span class="badge rounded-pill {% if total_servicos_ativos > 0 %}text-bg-success{% else %}text-bg-secondary{% endif %}">{% if total_servicos_ativos > 0 %}✓{% else %}○{% endif %}</span>
+        <div>
+          <div class="fw-semibold">Cadastre seus serviços</div>
+          <div class="text-secondary small">
+            {% if total_servicos_ativos > 0 %}{{ total_servicos_ativos }} serviço(s) ativo(s).{% else %}Informe quais serviços seus clientes podem agendar — sem isso, o bot não consegue oferecer nada.{% endif %}
+          </div>
+        </div>
+      </div>
+      {% if pode_editar %}
+      <a href="/admin/servicos?empresa_id={{ empresa.id }}&voltar=configurar-bot" class="btn btn-outline-primary text-nowrap">Configurar serviços</a>
+      {% endif %}
+    </div>
+
+    <div class="panel-card p-3 p-lg-4 mb-4 d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-3">
+      <div class="d-flex align-items-center gap-2">
+        <span class="badge rounded-pill text-bg-success">✓</span>
+        <div>
+          <div class="fw-semibold">Configure seus horários</div>
+          <div class="text-secondary small">Já começa com um horário padrão (08:00–18:00, todos os dias) — revise se precisar de algo diferente.</div>
+        </div>
+      </div>
+      {% if pode_editar %}
+      <a href="/admin/configurar-bot/horarios" class="btn btn-outline-primary text-nowrap">Configurar horários</a>
+      {% endif %}
+    </div>
+
+    <div class="panel-card p-4 text-center">
+      {% if empresa.ativo %}
+      <div class="fs-4 mb-2">✅</div>
+      <h2 class="h5 fw-bold mb-2">Seu bot está ativo</h2>
+      <p class="text-secondary mb-3">Ele já está respondendo e agendando pelos seus clientes no WhatsApp.</p>
+      {% if pode_editar %}
+      <form method="post" action="/admin/empresas/{{ empresa.id }}/pausar">
+        <button type="submit" class="btn btn-outline-secondary">Pausar bot</button>
+      </form>
+      {% endif %}
+      {% elif pronto_para_ativar %}
+      <div class="fs-4 mb-2">🚀</div>
+      {% if empresa.ativado_em %}
+      <h2 class="h5 fw-bold mb-2">Seu bot está pausado</h2>
+      <p class="text-secondary mb-3">Ele já esteve no ar e pode voltar a responder no WhatsApp quando você quiser.</p>
+      {% if pode_editar %}
+      <form method="post" action="/admin/empresas/{{ empresa.id }}/ativar">
+        <button type="submit" class="btn btn-brand btn-lg px-4">Reativar bot</button>
+      </form>
+      {% endif %}
+      {% else %}
+      <h2 class="h5 fw-bold mb-2">Tudo pronto pra ativar</h2>
+      <p class="text-secondary mb-3">WhatsApp conectado e pelo menos um serviço cadastrado — seu bot já pode começar a atender.</p>
+      {% if pode_editar %}
+      <form method="post" action="/admin/empresas/{{ empresa.id }}/ativar">
+        <button type="submit" class="btn btn-brand btn-lg px-4">Ativar bot</button>
+      </form>
+      {% endif %}
+      {% endif %}
+      {% else %}
+      <div class="fs-4 mb-2">🔒</div>
+      <h2 class="h5 fw-bold mb-2">Ative seu bot</h2>
+      <p class="text-secondary mb-0">
+        Complete as configurações necessárias para ativar o atendimento:
+        {% if not whatsapp_conectado %}conecte o WhatsApp{% if total_servicos_ativos == 0 %} e cadastre pelo menos um serviço{% endif %}{% else %}cadastre pelo menos um serviço{% endif %}.
+      </p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
