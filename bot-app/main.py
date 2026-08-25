@@ -18,6 +18,7 @@ from conversa import processar_mensagem
 from core.config import settings
 from core.database import SessionLocal, get_db
 from core.models import Empresa, UsuarioPainel
+from core.rate_limit import excedeu_limite, ip_do_cliente
 from core.redis_client import redis_cliente
 from core.schema import ensure_schema
 from services.configuracoes import obter_configuracao
@@ -31,8 +32,8 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-app = FastAPI()
-app.add_middleware(SessionMiddleware, secret_key=settings.session_secret_key, same_site="lax", https_only=False)
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+app.add_middleware(SessionMiddleware, secret_key=settings.session_secret_key, same_site="lax", https_only=True)
 app.mount("/admin", admin_app)
 
 
@@ -87,6 +88,19 @@ async def onboarding_inicio(request: Request):
 
 @app.post("/onboarding")
 async def onboarding_submit(request: Request, db: Session = Depends(get_db)):
+    if excedeu_limite(f"ratelimit:onboarding:{ip_do_cliente(request)}", limite=5, janela_segundos=60):
+        return templates.TemplateResponse(
+            request,
+            "onboarding/setup.html",
+            {
+                "request": request,
+                "title": "Criar minha conta",
+                "draft": {},
+                "errors": {"geral": "Muitas tentativas. Aguarde um minuto e tente novamente."},
+            },
+            status_code=429,
+        )
+
     form = await request.form()
     erros, dados = _validar_conta_form(form)
 

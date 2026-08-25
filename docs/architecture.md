@@ -228,6 +228,14 @@ Decisões já tomadas:
 
 A resposta de `/admin/esqueci-senha` é **sempre a mesma mensagem genérica**, exista ou não um usuário com aquele e-mail — evita que alguém descubra por tentativa quais e-mails têm cadastro no painel. Se o Resend não estiver configurado (`RESEND_API_KEY`/`EMAIL_FROM_ENDERECO` vazios), a falha de envio é só logada — a tela não trava nem revela o problema ao visitante.
 
+Superadmin (login via `ADMIN_USERNAME`/`ADMIN_PASSWORD` do `.env`) não passa por esse fluxo — não tem linha em `usuarios_painel`; a única forma de trocar essa senha é editando o `.env` e reiniciando o processo.
+
+### Rate limiting e superfície pública
+
+`core/rate_limit.py::excedeu_limite` implementa um contador simples em Redis (`INCR` + `EXPIRE` na primeira ocorrência) usado em `POST /admin/login` (10/min por IP), `POST /admin/esqueci-senha` (5/min por IP) e `POST /onboarding` (5/min por IP) — sem isso, essas três rotas não tinham nenhum limite de tentativas. Se o Redis estiver indisponível, o limite deixa passar em vez de travar o login (mesmo princípio de `services.configuracoes.obter_configuracao_isolada`); por isso o cliente Redis compartilhado (`core/redis_client.py`) tem timeout curto (2s) — sem isso, uma falha de rede travaria a requisição pelo timeout padrão do SO em vez de falhar rápido.
+
+`/docs`, `/redoc` e `/openapi.json` estão desligados nos dois apps (`main.py` e `admin.py`) — o FastAPI os deixa públicos por padrão, o que expunha toda a superfície de rotas (inclusive administrativas) sem autenticação. O cookie de sessão exige HTTPS (`https_only=True` no `SessionMiddleware` dos dois apps).
+
 ### Lembretes de agendamento (WhatsApp e/ou e-mail)
 
 Um loop assíncrono em `main.py` (`_loop_lembretes`, iniciado no `startup`) roda `services/lembretes.py::enviar_lembretes_pendentes` a cada `lembrete_intervalo_minutos`. Cada empresa escolhe em `/admin/configurar-bot/lembretes` quais canais usar (`Empresa.lembrete_canal_whatsapp`/`lembrete_canal_email`, ambos podem estar ligados):
@@ -237,9 +245,8 @@ Um loop assíncrono em `main.py` (`_loop_lembretes`, iniciado no `startup`) roda
 
 Cada canal grava seu próprio carimbo de sucesso (`Agendamento.lembrete_enviado_em` para WhatsApp, `lembrete_email_enviado_em` para e-mail) — uma falha em um canal nunca bloqueia nem faz reenviar o outro no próximo ciclo. Se uma empresa ativar só o e-mail e um cliente específico não tiver e-mail cadastrado, o lembrete cai automaticamente para o WhatsApp para esse cliente, para ninguém ficar sem aviso. O último erro de envio por WhatsApp fica visível para o superadmin em `/admin/configuracoes` (`ConfiguracaoSistema.ultimo_erro_lembrete_whatsapp`).
 
-Superadmin (login via `ADMIN_USERNAME`/`ADMIN_PASSWORD` do `.env`) não passa por esse fluxo — não tem linha em `usuarios_painel`; a única forma de trocar essa senha é editando o `.env` e reiniciando o processo.
-
 Pontos ainda em aberto:
 
-- Criptografia em repouso para segredos guardados no banco (token da Meta, chave de IA) — hoje ficam em texto puro.
+- Criptografia em repouso para segredos guardados no banco (token da Meta, chave de IA, chave do Resend) — hoje ficam em texto puro. Avaliado na auditoria de segurança: não recomendado agora — quem tem acesso ao Postgres já vê todos os dados de clientes de qualquer forma; o item que importa é rotacionar essas chaves se o banco vazar.
 - Validação/renovação automática de token da Meta.
+- `WEBHOOK_SECRET` é um segredo único compartilhado por todas as instâncias da Evolution API, não por empresa — quem o obtém pode forjar mensagem/cancelamento em nome de qualquer empresa (o nome da instância na Evolution API é o próprio slug, previsível). Requer token por empresa; rollout pendente porque instâncias já existentes têm a URL antiga embutida na Evolution API.

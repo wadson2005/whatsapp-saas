@@ -26,7 +26,7 @@ def _payload():
 def test_webhook_sem_token_e_rejeitado(monkeypatch, tmp_path):
     main = carregar_app(monkeypatch, tmp_path)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         resposta = client.post("/webhook", json=_payload())
 
     assert resposta.status_code == 401
@@ -35,7 +35,7 @@ def test_webhook_sem_token_e_rejeitado(monkeypatch, tmp_path):
 def test_webhook_com_token_invalido_e_rejeitado(monkeypatch, tmp_path):
     main = carregar_app(monkeypatch, tmp_path)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         resposta = client.post("/webhook?token=token-forjado", json=_payload())
 
     assert resposta.status_code == 401
@@ -44,7 +44,7 @@ def test_webhook_com_token_invalido_e_rejeitado(monkeypatch, tmp_path):
 def test_webhook_com_token_correto_e_processado(monkeypatch, tmp_path):
     main = carregar_app(monkeypatch, tmp_path)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         resposta = client.post(f"/webhook?token={WEBHOOK_SECRET}", json=_payload())
 
     assert resposta.status_code == 200

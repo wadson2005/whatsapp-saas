@@ -51,7 +51,7 @@ def test_solicitar_redefinicao_para_email_existente_gera_token_e_envia_email(mon
     empresa = _seed_empresa(main, models)
     _criar_usuario(main, usuarios, empresa.id, "maria@clinica.com")
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         resposta = client.post("/admin/esqueci-senha", data={"email": "maria@clinica.com"})
 
     assert resposta.status_code == 200
@@ -74,7 +74,7 @@ def test_solicitar_redefinicao_para_email_existente_gera_token_e_envia_email(mon
 def test_solicitar_redefinicao_para_email_inexistente_nao_vaza_informacao(monkeypatch, tmp_path):
     main, admin_module, models, usuarios = carregar_app(monkeypatch, tmp_path)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         resposta = client.post("/admin/esqueci-senha", data={"email": "ninguem@clinica.com"})
 
     assert resposta.status_code == 200
@@ -93,7 +93,7 @@ def test_redefinir_senha_com_token_valido_permite_login_com_nova_senha(monkeypat
     finally:
         db.close()
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         resposta = client.post(
             "/admin/redefinir-senha",
             data={"token": token, "senha": "senha-nova-123"},
@@ -127,7 +127,7 @@ def test_redefinir_senha_com_token_invalido_e_rejeitado(monkeypatch, tmp_path):
     empresa = _seed_empresa(main, models)
     _criar_usuario(main, usuarios, empresa.id, "maria@clinica.com")
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         resposta = client.post(
             "/admin/redefinir-senha",
             data={"token": "token-que-nao-existe", "senha": "senha-nova-123"},
@@ -151,7 +151,7 @@ def test_redefinir_senha_com_token_expirado_e_rejeitado(monkeypatch, tmp_path):
     finally:
         db.close()
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         resposta = client.post(
             "/admin/redefinir-senha",
             data={"token": token, "senha": "senha-nova-123"},
@@ -172,7 +172,7 @@ def test_redefinir_senha_rejeita_senha_curta(monkeypatch, tmp_path):
     finally:
         db.close()
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         resposta = client.post("/admin/redefinir-senha", data={"token": token, "senha": "123"})
 
     assert resposta.status_code == 400

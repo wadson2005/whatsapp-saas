@@ -214,6 +214,8 @@ O bot identifica a empresa pela `instance`, abre (ou recupera) o estado da conve
 - [x] Landing page pública e conta separada de empresa — onboarding vira só criação de conta; empresa é cadastrada depois, self-service, já logado.
 - [x] Ativação explícita do bot — conectar o WhatsApp não liga o atendimento sozinho; hub de configuração guiada (`/admin/configurar-bot`) com pré-requisitos reais para ativar.
 - [x] Lembrete de agendamento por WhatsApp e/ou e-mail — cada empresa escolhe o canal em `/admin/configurar-bot/lembretes`; falha em um canal nunca bloqueia nem repete o outro.
+- [x] Rate limiting em `/admin/login`, `/admin/esqueci-senha` e `/onboarding`; `/docs` desligado em produção; cookie de sessão só por HTTPS.
+- [ ] Token de webhook por empresa (hoje é um segredo único compartilhado por todas as instâncias da Evolution API).
 - [ ] Cobrança recorrente (assinatura por empresa).
 - [ ] Observabilidade e auditoria mais completas (métricas operacionais, alertas).
 - [ ] Ampliar os pontos de fallback cobertos pela camada de IA e adicionar mais providers.

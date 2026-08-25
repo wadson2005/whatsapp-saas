@@ -154,7 +154,7 @@ def test_admin_crud_http(monkeypatch, tmp_path):
     main, models, conhecimento, _ = carregar_app(monkeypatch, tmp_path)
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_admin(client)
 
         resposta_criar = client.post(
@@ -226,7 +226,7 @@ def test_conversa_usa_conhecimento_antes_da_ia(monkeypatch, tmp_path):
         json.dumps({"passo": "agendamento_ativo", "contexto": {}}),
     )
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         resposta = client.post(
             f"/webhook?token={WEBHOOK_SECRET}",
             json=_payload_texto("instancia-a", "5511900000001", "vocês têm estacionamento gratuito?"),
@@ -269,7 +269,7 @@ def test_conversa_sem_match_aciona_ia_normalmente(monkeypatch, tmp_path):
         json.dumps({"passo": "agendamento_ativo", "contexto": {}}),
     )
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         resposta = client.post(
             f"/webhook?token={WEBHOOK_SECRET}",
             json=_payload_texto("instancia-a", "5511900000002", "posso levar meu cachorro junto?"),

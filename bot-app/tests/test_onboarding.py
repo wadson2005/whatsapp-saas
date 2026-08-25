@@ -29,7 +29,7 @@ def _dados_conta(**overrides):
 def test_onboarding_cria_conta_sem_empresa_e_autentica(monkeypatch, tmp_path):
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         resposta = client.post("/onboarding", data=_dados_conta(), follow_redirects=False)
         assert resposta.status_code == 303
         assert resposta.headers["location"] == "/admin/dashboard"
@@ -50,7 +50,7 @@ def test_onboarding_cria_conta_sem_empresa_e_autentica(monkeypatch, tmp_path):
 def test_onboarding_rejeita_email_duplicado(monkeypatch, tmp_path):
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         client.post("/onboarding", data=_dados_conta())
         client.get("/admin/logout")
         resposta = client.post("/onboarding", data=_dados_conta(nome="Outra Pessoa"), follow_redirects=False)
@@ -62,7 +62,7 @@ def test_onboarding_rejeita_email_duplicado(monkeypatch, tmp_path):
 def test_onboarding_rejeita_senha_curta(monkeypatch, tmp_path):
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         resposta = client.post("/onboarding", data=_dados_conta(senha="123"), follow_redirects=False)
 
     assert resposta.status_code == 400
@@ -72,7 +72,7 @@ def test_onboarding_rejeita_senha_curta(monkeypatch, tmp_path):
 def test_onboarding_rejeita_nome_e_email_vazios(monkeypatch, tmp_path):
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         resposta = client.post("/onboarding", data=_dados_conta(nome="", email=""), follow_redirects=False)
 
     assert resposta.status_code == 400
@@ -83,7 +83,7 @@ def test_onboarding_rejeita_nome_e_email_vazios(monkeypatch, tmp_path):
 def test_onboarding_ja_autenticado_pula_para_dashboard(monkeypatch, tmp_path):
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         client.post("/onboarding", data=_dados_conta())
         resposta = client.get("/onboarding", follow_redirects=False)
 
@@ -94,7 +94,7 @@ def test_onboarding_ja_autenticado_pula_para_dashboard(monkeypatch, tmp_path):
 def test_raiz_mostra_landing_para_visitante_anonimo(monkeypatch, tmp_path):
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         resposta = client.get("/")
 
     assert resposta.status_code == 200
@@ -104,7 +104,7 @@ def test_raiz_mostra_landing_para_visitante_anonimo(monkeypatch, tmp_path):
 def test_raiz_redireciona_logado_para_dashboard(monkeypatch, tmp_path):
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         client.post("/onboarding", data=_dados_conta())
         resposta = client.get("/", follow_redirects=False)
 
@@ -140,7 +140,7 @@ def test_cadastrar_empresa_self_service_vincula_usuario_como_admin(monkeypatch, 
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
     _mockar_evolution(admin_module)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         client.post("/onboarding", data=_dados_conta())
 
         resposta = client.post("/admin/empresas/cadastrar", data=_dados_empresa(), follow_redirects=False)
@@ -167,7 +167,7 @@ def test_cadastrar_empresa_bloqueado_para_quem_ja_tem_empresa(monkeypatch, tmp_p
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
     _mockar_evolution(admin_module)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         client.post("/onboarding", data=_dados_conta())
         client.post("/admin/empresas/cadastrar", data=_dados_empresa())
 
@@ -185,7 +185,7 @@ def test_cadastrar_empresa_bloqueado_para_quem_ja_tem_empresa(monkeypatch, tmp_p
 def test_rotas_de_empresa_redirecionam_usuario_sem_empresa_para_dashboard(monkeypatch, tmp_path):
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         client.post("/onboarding", data=_dados_conta())
 
         resposta = client.get("/admin/servicos", follow_redirects=False)
@@ -198,7 +198,7 @@ def test_ativar_bot_exige_estar_pronto_mas_rota_sempre_funciona_e_marca_ativado_
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
     _mockar_evolution(admin_module)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         client.post("/onboarding", data=_dados_conta())
         client.post("/admin/empresas/cadastrar", data=_dados_empresa())
 
@@ -225,7 +225,7 @@ def test_pausar_bot_mantem_ativado_em_para_distinguir_de_nunca_configurado(monke
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
     _mockar_evolution(admin_module)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         client.post("/onboarding", data=_dados_conta())
         client.post("/admin/empresas/cadastrar", data=_dados_empresa())
 
@@ -252,7 +252,7 @@ def test_configurar_bot_hub_reflete_estado_real(monkeypatch, tmp_path):
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
     _mockar_evolution(admin_module)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         client.post("/onboarding", data=_dados_conta())
         client.post("/admin/empresas/cadastrar", data=_dados_empresa())
 
@@ -277,7 +277,7 @@ def test_configurar_bot_atendimento_salva_mensagens_customizadas(monkeypatch, tm
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
     _mockar_evolution(admin_module)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         client.post("/onboarding", data=_dados_conta())
         client.post("/admin/empresas/cadastrar", data=_dados_empresa())
 
@@ -300,7 +300,7 @@ def test_configurar_bot_lembretes_salva_canais_escolhidos(monkeypatch, tmp_path)
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
     _mockar_evolution(admin_module)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         client.post("/onboarding", data=_dados_conta())
         client.post("/admin/empresas/cadastrar", data=_dados_empresa())
 
@@ -334,7 +334,7 @@ def test_isolamento_multi_tenant_nas_rotas_de_ativar_pausar_e_hub(monkeypatch, t
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
     _mockar_evolution(admin_module)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         client.post("/onboarding", data=_dados_conta(email="dona-a@exemplo.com"))
         client.post("/admin/empresas/cadastrar", data=_dados_empresa(slug="empresa-a", nome="Empresa A"))
         client.get("/admin/logout")
@@ -350,7 +350,7 @@ def test_isolamento_multi_tenant_nas_rotas_de_ativar_pausar_e_hub(monkeypatch, t
     finally:
         db.close()
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login(client, "dona-a@exemplo.com")
 
         assert client.post(f"/admin/empresas/{empresa_b.id}/ativar").status_code == 404
@@ -374,7 +374,7 @@ def test_whatsapp_conectado_nao_implica_bot_ativo(monkeypatch, tmp_path):
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
     _mockar_evolution(admin_module)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         client.post("/onboarding", data=_dados_conta())
         client.post("/admin/empresas/cadastrar", data=_dados_empresa())
 
@@ -394,7 +394,7 @@ def test_dashboard_mostra_status_de_configuracao_pendente(monkeypatch, tmp_path)
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
     _mockar_evolution(admin_module)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         client.post("/onboarding", data=_dados_conta())
         client.post("/admin/empresas/cadastrar", data=_dados_empresa())
 
@@ -406,7 +406,7 @@ def test_usuario_retorna_apos_logout_e_ve_progresso_persistido(monkeypatch, tmp_
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
     _mockar_evolution(admin_module)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         client.post("/onboarding", data=_dados_conta())
         client.post("/admin/empresas/cadastrar", data=_dados_empresa())
 
@@ -437,7 +437,7 @@ def test_usuario_retorna_apos_logout_e_ve_progresso_persistido(monkeypatch, tmp_
 def test_rotas_antigas_de_onboarding_nao_existem_mais(monkeypatch, tmp_path):
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         assert client.get("/onboarding/configurar").status_code == 404
         assert client.get("/onboarding/conectar").status_code == 404
         assert client.get("/onboarding/conectar/status").status_code == 404

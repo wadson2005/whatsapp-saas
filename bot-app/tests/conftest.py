@@ -1,3 +1,4 @@
+import importlib
 import sys
 from pathlib import Path
 
@@ -31,6 +32,7 @@ APP_MODULES = [
     "core.database",
     "core.db_compat",
     "core.models",
+    "core.rate_limit",
     "core.redis_client",
     "core.schema",
     "core.security",
@@ -71,6 +73,13 @@ class FakeRedis:
     def delete(self, key):
         self.storage.pop(key, None)
 
+    def incr(self, key):
+        self.storage[key] = int(self.storage.get(key, 0)) + 1
+        return self.storage[key]
+
+    def expire(self, key, seconds):
+        pass  # não simula expiração real — suficiente para os testes de rate limit atuais
+
     def ping(self):
         return True
 
@@ -88,3 +97,10 @@ def preparar_ambiente(monkeypatch, tmp_path: Path, env_overrides: dict | None = 
 
     for modulo in APP_MODULES:
         sys.modules.pop(modulo, None)
+
+    # Sem Redis real nos testes: qualquer módulo que fizer `from core.redis_client
+    # import redis_cliente` depois daqui (main, admin, conversa, core.rate_limit)
+    # cai nesse fake — sem isso, cada chamada de rate limit tentaria conectar a um
+    # Redis inexistente e esperaria o timeout de rede em todo teste de login/onboarding.
+    redis_client_module = importlib.import_module("core.redis_client")
+    redis_client_module.redis_cliente = FakeRedis()

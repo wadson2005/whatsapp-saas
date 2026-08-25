@@ -56,7 +56,7 @@ def test_criar_empresa_cria_instancia_automaticamente_e_redireciona_para_conecta
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
     _mockar_evolution(admin_module)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_superadmin(client)
 
         resposta = client.post("/admin/empresas/nova", data=_dados_empresa(), follow_redirects=False)
@@ -84,7 +84,7 @@ def test_criar_empresa_sem_telefone_nao_chama_evolution(monkeypatch, tmp_path):
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
     _mockar_evolution(admin_module)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_superadmin(client)
 
         resposta = client.post(
@@ -108,7 +108,7 @@ def test_criar_empresa_nao_persiste_se_evolution_api_indisponivel(monkeypatch, t
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
     _mockar_evolution(admin_module, criar_ok=False)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_superadmin(client)
 
         resposta = client.post("/admin/empresas/nova", data=_dados_empresa(), follow_redirects=False)
@@ -129,7 +129,7 @@ def test_criar_empresa_mostra_motivo_real_quando_evolution_api_recusa(monkeypatc
 
     _mockar_evolution(admin_module, criar_ok=False, erro=EvolutionAPIError("Esse número já está em uso por outra instância"))
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_superadmin(client)
 
         resposta = client.post("/admin/empresas/nova", data=_dados_empresa(), follow_redirects=False)
@@ -148,7 +148,7 @@ def test_criar_empresa_rejeita_slug_ja_usado_na_evolution(monkeypatch, tmp_path)
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
     _mockar_evolution(admin_module, ja_existe=True)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_superadmin(client)
 
         resposta = client.post("/admin/empresas/nova", data=_dados_empresa(), follow_redirects=False)
@@ -168,7 +168,7 @@ def test_criar_empresa_sugere_slug_valido_quando_slug_tem_acento(monkeypatch, tm
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
     _mockar_evolution(admin_module)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_superadmin(client)
 
         resposta = client.post(
@@ -185,7 +185,7 @@ def test_criar_empresa_sugere_slug_valido_quando_slug_tem_acento(monkeypatch, tm
 def test_formulario_de_empresa_nao_pede_mais_instancia_evolution(monkeypatch, tmp_path):
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_superadmin(client)
 
         resposta = client.get("/admin/empresas/nova")

@@ -173,7 +173,7 @@ def test_pagina_admin_renderiza(monkeypatch, tmp_path):
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A")
     _seed_cliente(main, models, empresa, "5511900000001", "Ana", criado_em=datetime.utcnow() - timedelta(days=200))
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_admin(client)
         resposta = client.get(f"/admin/clientes-inativos?empresa_id={empresa.id}&dias=90")
 

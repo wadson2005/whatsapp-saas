@@ -4,6 +4,15 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ## [Unreleased]
 
+### Corrigido (auditoria de segurança)
+
+- Rate limiting simples (Redis, contador com expiração) em `POST /admin/login` (10/min), `POST /admin/esqueci-senha` (5/min) e `POST /onboarding` (5/min) por IP — antes não havia nenhum limite, permitindo força bruta de credenciais e flood de criação de conta/e-mail. Falha do Redis nunca bloqueia o login (`core/rate_limit.py::excedeu_limite` deixa passar e loga, mesmo princípio de `services.configuracoes.obter_configuracao_isolada`).
+- `core/redis_client.py`: cliente Redis compartilhado ganhou timeout explícito de 2s (`socket_connect_timeout`/`socket_timeout`) — sem isso, um Redis indisponível travava a requisição pelo timeout padrão do SO em vez de falhar rápido.
+- `/docs`, `/redoc` e `/openapi.json` desligados nos dois apps (`main.py` e `admin.py`) — estavam públicos por padrão do FastAPI, expondo toda a superfície de rotas (inclusive administrativas) sem autenticação.
+- Cookie de sessão agora exige HTTPS (`https_only=True` em vez de `False`, que estava setado explicitamente) — antes trafegava em texto puro se o app fosse acessado por HTTP.
+- **Achado tratado fora do código, direto na infraestrutura**: o Caddy de produção tinha um segundo domínio (hostname automático da VPS) roteando direto para a porta da Evolution API (8080), expondo a API de gerenciamento de instâncias WhatsApp de todas as empresas publicamente, sem passar pelo FastAPI nem pelo `WEBHOOK_SECRET`. Bloco removido do Caddyfile do servidor.
+- **Identificado, não corrigido nesta rodada**: `WEBHOOK_SECRET` é um segredo único compartilhado por todas as instâncias da Evolution API — quem o obtém pode forjar mensagem/cancelamento em nome de qualquer empresa (o nome da instância é previsível, é o próprio slug). Requer token por empresa; decisão de rollout pendente porque instâncias já existentes têm a URL antiga embutida na Evolution API.
+
 ### Adicionado (lembrete de agendamento por WhatsApp e/ou e-mail)
 
 - Cada empresa agora escolhe em `/admin/configurar-bot/lembretes` se quer lembrete automático por WhatsApp, e-mail ou os dois (`Empresa.lembrete_canal_whatsapp`/`lembrete_canal_email`, WhatsApp ligado por padrão para não mudar o comportamento de empresas já existentes). Cada canal grava seu próprio carimbo de sucesso (`Agendamento.lembrete_enviado_em` para WhatsApp, `lembrete_email_enviado_em`, novo, para e-mail) — uma falha num canal nunca bloqueia nem faz reenviar o outro no próximo ciclo do loop de lembretes, o que evitaria, por exemplo, reenviar o WhatsApp repetidamente só porque o e-mail está falhando.

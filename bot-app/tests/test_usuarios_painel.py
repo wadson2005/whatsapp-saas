@@ -96,7 +96,7 @@ def test_login_usuario_de_empresa_com_credenciais_corretas(monkeypatch, tmp_path
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A")
     _criar_usuario(main, usuarios, empresa, "Ana", "ana@clinica-a.com", "senha12345", usuarios.PAPEL_ADMIN)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         resposta = _login(client, "ana@clinica-a.com", "senha12345")
         assert resposta.status_code == 303
         assert resposta.headers["location"] == "/admin/dashboard"
@@ -107,7 +107,7 @@ def test_login_usuario_inativo_ou_senha_errada_falha(monkeypatch, tmp_path):
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A")
     usuario = _criar_usuario(main, usuarios, empresa, "Ana", "ana@clinica-a.com", "senha12345", usuarios.PAPEL_ADMIN)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         resposta_senha_errada = _login(client, "ana@clinica-a.com", "senha-errada")
         assert resposta_senha_errada.status_code == 401
 
@@ -131,7 +131,7 @@ def test_usuario_operador_ve_apenas_a_propria_empresa(monkeypatch, tmp_path):
     cliente_b = _seed_cliente(main, models, empresa_b, "5511900000002", "Cliente B")
     _criar_usuario(main, usuarios, empresa_a, "Bruno", "bruno@clinica-a.com", "senha12345", usuarios.PAPEL_OPERADOR)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login(client, "bruno@clinica-a.com", "senha12345")
 
         resposta = client.get("/admin/clientes")
@@ -153,7 +153,7 @@ def test_usuario_operador_nao_acessa_rotas_restritas_ao_papel_admin(monkeypatch,
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A")
     _criar_usuario(main, usuarios, empresa, "Bruno", "bruno@clinica-a.com", "senha12345", usuarios.PAPEL_OPERADOR)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login(client, "bruno@clinica-a.com", "senha12345")
 
         assert client.get("/admin/servicos/novo").status_code == 403
@@ -168,7 +168,7 @@ def test_usuario_admin_de_empresa_gerencia_usuarios_da_propria_empresa_mas_nao_c
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A")
     _criar_usuario(main, usuarios, empresa, "Carla", "carla@clinica-a.com", "senha12345", usuarios.PAPEL_ADMIN)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login(client, "carla@clinica-a.com", "senha12345")
 
         # admin da empresa pode criar operador na própria empresa
@@ -197,7 +197,7 @@ def test_usuario_nao_pode_desativar_a_propria_conta(monkeypatch, tmp_path):
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A")
     usuario = _criar_usuario(main, usuarios, empresa, "Carla", "carla@clinica-a.com", "senha12345", usuarios.PAPEL_ADMIN)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login(client, "carla@clinica-a.com", "senha12345")
 
         resposta = client.post(f"/admin/usuarios/{usuario.id}/toggle")
@@ -209,7 +209,7 @@ def test_criar_usuario_com_email_duplicado_falha(monkeypatch, tmp_path):
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A")
     _criar_usuario(main, usuarios, empresa, "Ana", "duplicado@clinica-a.com", "senha12345", usuarios.PAPEL_ADMIN)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_superadmin(client)
 
         resposta = client.post(
@@ -227,7 +227,7 @@ def test_operador_nao_ve_botoes_de_edicao_em_servicos_e_conhecimento(monkeypatch
     _seed_servico(main, models, empresa, "Corte")
     _criar_usuario(main, usuarios, empresa, "Bruno", "bruno@clinica-a.com", "senha12345", usuarios.PAPEL_OPERADOR)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login(client, "bruno@clinica-a.com", "senha12345")
 
         resposta = client.get("/admin/servicos")
@@ -244,7 +244,7 @@ def test_usuario_operador_navega_em_modo_leitura_pelas_telas_do_dia_a_dia(monkey
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A")
     _criar_usuario(main, usuarios, empresa, "Bruno", "bruno@clinica-a.com", "senha12345", usuarios.PAPEL_OPERADOR)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login(client, "bruno@clinica-a.com", "senha12345")
 
         for rota in (
@@ -265,7 +265,7 @@ def test_formularios_de_usuario_renderizam_para_admin_da_empresa(monkeypatch, tm
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A")
     usuario = _criar_usuario(main, usuarios, empresa, "Carla", "carla@clinica-a.com", "senha12345", usuarios.PAPEL_ADMIN)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login(client, "carla@clinica-a.com", "senha12345")
 
         assert client.get("/admin/usuarios/novo").status_code == 200
@@ -279,7 +279,7 @@ def test_superadmin_continua_com_acesso_total(monkeypatch, tmp_path):
     _seed_cliente(main, models, empresa_a, "5511900000001", "Cliente A")
     _seed_cliente(main, models, empresa_b, "5511900000002", "Cliente B")
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_superadmin(client)
 
         resposta = client.get("/admin/clientes")
@@ -315,7 +315,7 @@ def test_operador_nao_atualiza_agendamento_de_outra_empresa_via_id(monkeypatch, 
     finally:
         db.close()
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login(client, "bruno@clinica-a.com", "senha12345")
 
         resposta = client.post(f"/admin/agendamentos/{agendamento_b.id}/status", data={"status": "cancelado"})

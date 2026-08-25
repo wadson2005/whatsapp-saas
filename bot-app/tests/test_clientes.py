@@ -99,7 +99,7 @@ def test_lista_clientes_isola_por_empresa_e_busca(monkeypatch, tmp_path):
     _seed_cliente(main, models, empresa_a, "5511900000002", "Bruno Lima", datetime(2026, 7, 2, 10, 0))
     _seed_cliente(main, models, empresa_b, "5511900000003", "Carla Dias", datetime(2026, 7, 3, 10, 0))
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_admin(client)
 
         resposta = client.get(f"/admin/clientes?empresa_id={empresa_a.id}")
@@ -120,7 +120,7 @@ def test_lista_clientes_ordena_por_nome(monkeypatch, tmp_path):
     _seed_cliente(main, models, empresa, "5511900000001", "Zeca", datetime(2026, 7, 1, 10, 0))
     _seed_cliente(main, models, empresa, "5511900000002", "Ana", datetime(2026, 7, 2, 10, 0))
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_admin(client)
 
         resposta = client.get(f"/admin/clientes?empresa_id={empresa.id}&sort=nome")
@@ -138,7 +138,7 @@ def test_detalhe_cliente_mostra_historico_e_isola_por_empresa(monkeypatch, tmp_p
     cliente = _seed_cliente(main, models, empresa_a, "5511900000001", "Ana Souza", datetime(2026, 7, 1, 10, 0))
     _seed_agendamento(main, models, empresa_a, cliente, servico, datetime(2026, 7, 10, 14, 0), status="confirmado")
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_admin(client)
 
         resposta = client.get(f"/admin/clientes/{cliente.id}")
@@ -157,7 +157,7 @@ def test_dashboard_exibe_metricas_de_clientes_e_solicitacoes(monkeypatch, tmp_pa
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
     _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", datetime(2026, 7, 1, 10, 0))
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_admin(client)
 
         resposta = client.get("/admin/dashboard")
@@ -171,7 +171,7 @@ def test_pagina_novo_cliente_lista_empresas(monkeypatch, tmp_path):
 
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_admin(client)
 
         resposta = client.get(f"/admin/clientes/novo?empresa_id={empresa.id}")
@@ -184,7 +184,7 @@ def test_cadastro_manual_de_cliente(monkeypatch, tmp_path):
 
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_admin(client)
 
         resposta = client.post(
@@ -216,7 +216,7 @@ def test_cadastro_manual_de_cliente_rejeita_telefone_vazio(monkeypatch, tmp_path
 
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_admin(client)
 
         resposta = client.post(
@@ -241,7 +241,7 @@ def test_cadastro_manual_de_cliente_rejeita_telefone_duplicado_na_mesma_empresa(
     empresa_b = _seed_empresa(main, models, "clinica-b", "Clínica B", "5511999999992", "instancia-b")
     _seed_cliente(main, models, empresa_a, "5511900000001", "Ana Souza", datetime(2026, 7, 1, 10, 0))
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_admin(client)
 
         # mesmo telefone, mesma empresa -> rejeitado
@@ -277,7 +277,7 @@ def test_lista_agendamentos_linka_para_detalhe_do_cliente(monkeypatch, tmp_path)
     cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", datetime(2026, 7, 1, 10, 0))
     _seed_agendamento(main, models, empresa, cliente, servico, datetime(2026, 7, 10, 14, 0))
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_admin(client)
 
         resposta = client.get("/admin/agendamentos")

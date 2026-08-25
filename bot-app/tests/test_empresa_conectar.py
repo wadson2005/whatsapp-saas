@@ -75,7 +75,7 @@ def test_superadmin_ve_qrcode_de_qualquer_empresa(monkeypatch, tmp_path):
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A")
     _mockar_evolution(admin_module)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_superadmin(client)
 
         resposta = client.get(f"/admin/empresas/{empresa.id}/conectar")
@@ -90,7 +90,7 @@ def test_operador_nao_acessa_reconectar(monkeypatch, tmp_path):
     _criar_usuario(main, usuarios, empresa, "Bruno", "bruno@clinica-a.com", "senha12345", usuarios.PAPEL_OPERADOR)
     _mockar_evolution(admin_module)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login(client, "bruno@clinica-a.com", "senha12345")
 
         assert client.get(f"/admin/empresas/{empresa.id}/conectar").status_code == 403
@@ -104,7 +104,7 @@ def test_admin_de_outra_empresa_nao_acessa_reconectar(monkeypatch, tmp_path):
     _criar_usuario(main, usuarios, empresa_b, "Carla", "carla@clinica-b.com", "senha12345", usuarios.PAPEL_ADMIN)
     _mockar_evolution(admin_module)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login(client, "carla@clinica-b.com", "senha12345")
 
         assert client.get(f"/admin/empresas/{empresa_a.id}/conectar").status_code == 404
@@ -117,7 +117,7 @@ def test_admin_da_propria_empresa_conecta_e_verifica_status(monkeypatch, tmp_pat
     _criar_usuario(main, usuarios, empresa, "Carla", "carla@clinica-a.com", "senha12345", usuarios.PAPEL_ADMIN)
     _mockar_evolution(admin_module, estado="open")
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login(client, "carla@clinica-a.com", "senha12345")
 
         assert client.get(f"/admin/empresas/{empresa.id}/conectar").status_code == 200
@@ -137,7 +137,7 @@ def test_pagina_de_conectar_degrada_com_erro_quando_evolution_falha(monkeypatch,
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A")
     _mockar_evolution(admin_module, falhar=True)
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_superadmin(client)
 
         resposta = client.get(f"/admin/empresas/{empresa.id}/conectar")

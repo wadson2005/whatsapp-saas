@@ -91,7 +91,7 @@ def test_solicitacao_humana_eh_criada_e_confirmada_no_whatsapp(monkeypatch, tmp_
 
     empresa = _seed_empresa(main, models, "clinica-sorriso-feliz", "Clínica Sorriso Feliz", "5586999999999", "clinica-sorriso-feliz")
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         response = client.post(
             f"/webhook?token={WEBHOOK_SECRET}",
             json=_payload_texto("clinica-sorriso-feliz", "5586999999999", "quero falar com atendente"),
@@ -121,7 +121,7 @@ def test_solicitacao_humana_nao_duplica_pendente(monkeypatch, tmp_path):
 
     _seed_empresa(main, models, "clinica-sorriso-feliz", "Clínica Sorriso Feliz", "5586999999998", "clinica-sorriso-feliz")
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         primeira = client.post(
             f"/webhook?token={WEBHOOK_SECRET}",
             json=_payload_texto("clinica-sorriso-feliz", "5586999999998", "falar com humano"),
@@ -154,7 +154,7 @@ def test_admin_altera_status_e_isola_por_empresa(monkeypatch, tmp_path):
     _seed_solicitacao(main, models, empresa_a, "5511999999993", "Bruno", "Mensagem recente", datetime(2026, 7, 31, 11, 0))
     _seed_solicitacao(main, models, empresa_b, "5511999999992", "Carla", "Outra empresa", datetime(2026, 7, 31, 12, 0))
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         _login_admin(client)
 
         resposta_lista = client.get(f"/admin/solicitacoes-atendimento?empresa_id={empresa_a.id}")

@@ -17,6 +17,7 @@ from starlette.templating import Jinja2Templates
 from core.config import settings
 from core.database import get_db
 from core.models import Agendamento, ClienteFinal, Empresa, EmpresaConhecimento, Servico, SolicitacaoAtendimento, UsuarioPainel
+from core.rate_limit import excedeu_limite, ip_do_cliente
 from integrations.email_client import EmailError, email_configurado, enviar_email
 from integrations.evolution_client import (
     EvolutionAPIConexaoError,
@@ -49,9 +50,9 @@ logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
-admin_app = FastAPI()
+admin_app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 SLUG_REGEX = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-admin_app.add_middleware(SessionMiddleware, secret_key=settings.session_secret_key, same_site="lax", https_only=False)
+admin_app.add_middleware(SessionMiddleware, secret_key=settings.session_secret_key, same_site="lax", https_only=True)
 
 
 class AdminAuthRequired(Exception):
@@ -382,6 +383,14 @@ async def login_page(request: Request):
 
 @admin_app.post("/login")
 async def login_submit(request: Request, db: Session = Depends(get_db)):
+    if excedeu_limite(f"ratelimit:login:{ip_do_cliente(request)}", limite=10, janela_segundos=60):
+        return templates.TemplateResponse(
+            request,
+            "admin/login.html",
+            page_context(request, title="Entrar", error="Muitas tentativas. Aguarde um minuto e tente novamente."),
+            status_code=429,
+        )
+
     form = await request.form()
     username = (form.get("username") or "").strip()
     password = form.get("password") or ""
@@ -433,6 +442,14 @@ async def esqueci_senha_page(request: Request):
 
 @admin_app.post("/esqueci-senha")
 async def esqueci_senha_submit(request: Request, db: Session = Depends(get_db)):
+    if excedeu_limite(f"ratelimit:esqueci-senha:{ip_do_cliente(request)}", limite=5, janela_segundos=60):
+        return templates.TemplateResponse(
+            request,
+            "admin/esqueci_senha.html",
+            page_context(request, title="Recuperar acesso", error="Muitas tentativas. Aguarde um minuto e tente novamente."),
+            status_code=429,
+        )
+
     form = await request.form()
     email = (form.get("email") or "").strip().lower()
 

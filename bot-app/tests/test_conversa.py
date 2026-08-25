@@ -103,7 +103,7 @@ def test_mensagem_desconhecida_mostra_menu_e_atendente(monkeypatch, tmp_path):
 
     _criar_empresa_com_agendamento(main, models, "5586999999999", "clinica-sorriso-feliz")
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         response = client.post(
             f"/webhook?token={WEBHOOK_SECRET}",
             json=_payload_texto("clinica-sorriso-feliz", "5586999999999", "preciso de ajuda"),
@@ -126,7 +126,7 @@ def test_cancelamento_exige_confirmacao_e_cancela(monkeypatch, tmp_path):
 
     _, _, agendamento = _criar_empresa_com_agendamento(main, models, "5586999999998", "clinica-sorriso-feliz")
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         resposta_cancelar = client.post(
             f"/webhook?token={WEBHOOK_SECRET}",
             json=_payload_texto("clinica-sorriso-feliz", "5586999999998", "cancelar agendamento"),
@@ -178,7 +178,7 @@ def test_estado_inesperado_recebe_fallback_e_nao_quebra_o_contexto(monkeypatch, 
         json.dumps({"passo": "aguardando_estado_invalido", "contexto": {"servico_id": 1}}),
     )
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         response = client.post(
             f"/webhook?token={WEBHOOK_SECRET}",
             json=_payload_texto("clinica-sorriso-feliz", "5586999999997", "qualquer coisa"),
@@ -217,7 +217,7 @@ def test_ia_interpreta_cancelamento_quando_fora_das_palavras_chave(monkeypatch, 
     )
     conversa.criar_ai_service = lambda config: fake_ia
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         response = client.post(
             f"/webhook?token={WEBHOOK_SECRET}",
             json=_payload_texto("clinica-sorriso-feliz", "5586999999996", "não vou poder ir nesse horário"),
@@ -265,7 +265,7 @@ def test_ia_desconhecida_mantem_fallback_padrao(monkeypatch, tmp_path):
     )
     conversa.criar_ai_service = lambda config: fake_ia
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         response = client.post(
             f"/webhook?token={WEBHOOK_SECRET}",
             json=_payload_texto("clinica-sorriso-feliz", "5586999999995", "posso levar meu filho junto?"),
@@ -311,7 +311,7 @@ def test_configuracao_pelo_painel_ativa_ia_sem_reiniciar_processo(monkeypatch, t
         json.dumps({"passo": "agendamento_ativo", "contexto": {"agendamento_id": agendamento.id, "servico_id": agendamento.servico_id}}),
     )
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, base_url="https://testserver") as client:
         login = client.post(
             "/admin/login",
             data={"username": "admin", "password": "senha-super-segura-123"},
