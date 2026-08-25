@@ -296,6 +296,36 @@ def test_configurar_bot_atendimento_salva_mensagens_customizadas(monkeypatch, tm
     assert empresa.mensagem_boas_vindas == "Olá! Bem-vindo à Clínica Sorriso Feliz."
 
 
+def test_configurar_bot_lembretes_salva_canais_escolhidos(monkeypatch, tmp_path):
+    main, admin_module, models = carregar_app(monkeypatch, tmp_path)
+    _mockar_evolution(admin_module)
+
+    with TestClient(main.app) as client:
+        client.post("/onboarding", data=_dados_conta())
+        client.post("/admin/empresas/cadastrar", data=_dados_empresa())
+
+        pagina = client.get("/admin/configurar-bot/lembretes")
+        assert pagina.status_code == 200
+        assert "Lembrete por WhatsApp" in pagina.text
+        assert "Lembrete por e-mail" in pagina.text
+
+        resposta = client.post(
+            "/admin/configurar-bot/lembretes",
+            data={"lembrete_canal_email": "on"},
+            follow_redirects=False,
+        )
+        assert resposta.status_code == 303
+
+    db = main.SessionLocal()
+    try:
+        empresa = db.query(models.Empresa).filter_by(slug="clinica-sorriso-feliz").one()
+    finally:
+        db.close()
+    # só "lembrete_canal_email" veio marcado no form — WhatsApp desmarcado é uma escolha válida
+    assert empresa.lembrete_canal_whatsapp is False
+    assert empresa.lembrete_canal_email is True
+
+
 def _login(client: TestClient, email: str, senha: str = "senha-super-segura"):
     return client.post("/admin/login", data={"username": email, "password": senha})
 

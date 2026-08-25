@@ -224,9 +224,18 @@ Decisões já tomadas:
 
 ### Recuperação de senha
 
-`/admin/esqueci-senha` gera um token de uso único (`secrets.token_urlsafe(32)`, guardado como hash SHA-256 em `usuarios_painel.reset_token_hash`, nunca em texto puro) com validade de 1 hora, e envia por e-mail (`integrations/email_client.py`, SMTP genérico via `smtplib` — funciona com Gmail, SendGrid, Mailgun, SES etc., basta configurar `SMTP_*` no `.env`) um link para `/admin/redefinir-senha?token=...`.
+`/admin/esqueci-senha` gera um token de uso único (`secrets.token_urlsafe(32)`, guardado como hash SHA-256 em `usuarios_painel.reset_token_hash`, nunca em texto puro) com validade de 1 hora, e envia por e-mail (`integrations/email_client.py`, via API do [Resend](https://resend.com) — basta configurar `RESEND_API_KEY`/`EMAIL_FROM_ENDERECO` no `.env` ou em `/admin/configuracoes`) um link para `/admin/redefinir-senha?token=...`.
 
-A resposta de `/admin/esqueci-senha` é **sempre a mesma mensagem genérica**, exista ou não um usuário com aquele e-mail — evita que alguém descubra por tentativa quais e-mails têm cadastro no painel. Se o SMTP não estiver configurado (`SMTP_HOST`/`SMTP_USUARIO`/`SMTP_SENHA`/`SMTP_REMETENTE` vazios), a falha de envio é só logada — a tela não trava nem revela o problema ao visitante.
+A resposta de `/admin/esqueci-senha` é **sempre a mesma mensagem genérica**, exista ou não um usuário com aquele e-mail — evita que alguém descubra por tentativa quais e-mails têm cadastro no painel. Se o Resend não estiver configurado (`RESEND_API_KEY`/`EMAIL_FROM_ENDERECO` vazios), a falha de envio é só logada — a tela não trava nem revela o problema ao visitante.
+
+### Lembretes de agendamento (WhatsApp e/ou e-mail)
+
+Um loop assíncrono em `main.py` (`_loop_lembretes`, iniciado no `startup`) roda `services/lembretes.py::enviar_lembretes_pendentes` a cada `lembrete_intervalo_minutos`. Cada empresa escolhe em `/admin/configurar-bot/lembretes` quais canais usar (`Empresa.lembrete_canal_whatsapp`/`lembrete_canal_email`, ambos podem estar ligados):
+
+- **WhatsApp**: mensagem de template pré-aprovado no Meta Business Manager (`integrations/meta_client.py::enviar_template`) — único formato permitido fora da janela de 24h de atendimento. Usa as mesmas credenciais globais da Graph API (`ConfiguracaoSistema`).
+- **E-mail**: via API do Resend (`integrations/email_client.py`), só enviado para clientes com `ClienteFinal.email` preenchido — a conversa por WhatsApp não coleta e-mail automaticamente, é cadastrado manualmente pelo painel.
+
+Cada canal grava seu próprio carimbo de sucesso (`Agendamento.lembrete_enviado_em` para WhatsApp, `lembrete_email_enviado_em` para e-mail) — uma falha em um canal nunca bloqueia nem faz reenviar o outro no próximo ciclo. Se uma empresa ativar só o e-mail e um cliente específico não tiver e-mail cadastrado, o lembrete cai automaticamente para o WhatsApp para esse cliente, para ninguém ficar sem aviso. O último erro de envio por WhatsApp fica visível para o superadmin em `/admin/configuracoes` (`ConfiguracaoSistema.ultimo_erro_lembrete_whatsapp`).
 
 Superadmin (login via `ADMIN_USERNAME`/`ADMIN_PASSWORD` do `.env`) não passa por esse fluxo — não tem linha em `usuarios_painel`; a única forma de trocar essa senha é editando o `.env` e reiniciando o processo.
 

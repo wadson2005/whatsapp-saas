@@ -4,6 +4,15 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ## [Unreleased]
 
+### Adicionado (lembrete de agendamento por WhatsApp e/ou e-mail)
+
+- Cada empresa agora escolhe em `/admin/configurar-bot/lembretes` se quer lembrete automático por WhatsApp, e-mail ou os dois (`Empresa.lembrete_canal_whatsapp`/`lembrete_canal_email`, WhatsApp ligado por padrão para não mudar o comportamento de empresas já existentes). Cada canal grava seu próprio carimbo de sucesso (`Agendamento.lembrete_enviado_em` para WhatsApp, `lembrete_email_enviado_em`, novo, para e-mail) — uma falha num canal nunca bloqueia nem faz reenviar o outro no próximo ciclo do loop de lembretes, o que evitaria, por exemplo, reenviar o WhatsApp repetidamente só porque o e-mail está falhando.
+- E-mail via API do [Resend](https://resend.com) (`integrations/email_client.py`, reescrito — antes era SMTP genérico via `smtplib`, usado só na recuperação de senha e nunca ligado a lembretes; migrado para não manter dois mecanismos de envio de e-mail no projeto). Credenciais (`RESEND_API_KEY`/`EMAIL_FROM_ENDERECO`/`EMAIL_FROM_NOME`) são globais, mesmo padrão das credenciais da Meta — nenhuma empresa precisa configurar servidor de e-mail próprio.
+- `ClienteFinal.email` (novo campo, opcional) — editável pelo painel em `/admin/clientes/{id}` e no cadastro manual de cliente; a conversa por WhatsApp não coleta e-mail automaticamente, pra não adicionar fricção ao fluxo de agendamento.
+- Rede de segurança: se uma empresa ativar só o canal e-mail e um cliente específico não tiver e-mail cadastrado, o lembrete desse cliente cai automaticamente para WhatsApp, em vez de ficar sem nenhum aviso.
+- Último erro de envio por WhatsApp (ex.: template não aprovado) fica visível para o superadmin em `/admin/configuracoes`, em vez de só no log.
+- `.env.example`: variáveis `SMTP_*` substituídas por `RESEND_API_KEY`/`EMAIL_FROM_ENDERECO`/`EMAIL_FROM_NOME`.
+
 ### Alterado (copywriting da landing page)
 
 - Reescrita completa dos textos de `templates/site/landing.html` (hero, seção de identificação com o problema — nova —, "como funciona", "o que o bot faz", FAQ e CTA final). Antes de mexer em qualquer texto, foi feito um levantamento das funcionalidades realmente implementadas (README, `docs/architecture.md`, `conversa.py`, `services/agenda.py`) para garantir que cada afirmação da página corresponde a um comportamento real do sistema — inclusive a remoção da frase "Só o que já está implementado — sem promessa vazia" (uma nota interna que vazou pro texto público) e a descoberta de que `_empresa_horario_disponivel()` em `conversa.py` está morta (nunca chamada) — por isso a página não afirma que o bot "responde de acordo com o horário configurado" fora do que já é real (validação de horário/almoço/dias indisponíveis na hora de marcar um agendamento, isso sim implementado em `services/agenda.py`).

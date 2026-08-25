@@ -53,12 +53,9 @@ class Settings(BaseSettings):
     ai_model: str = Field(default="gpt-4o-mini", validation_alias="AI_MODEL")
     ai_timeout_segundos: float = Field(default=6.0, validation_alias="AI_TIMEOUT_SEGUNDOS")
     ai_cache_ttl_segundos: int = Field(default=600, validation_alias="AI_CACHE_TTL_SEGUNDOS")
-    smtp_host: str | None = Field(default=None, validation_alias="SMTP_HOST")
-    smtp_porta: int = Field(default=587, validation_alias="SMTP_PORTA")
-    smtp_usuario: str | None = Field(default=None, validation_alias="SMTP_USUARIO")
-    smtp_senha: str | None = Field(default=None, validation_alias="SMTP_SENHA")
-    smtp_remetente: str | None = Field(default=None, validation_alias="SMTP_REMETENTE")
-    smtp_use_tls: bool = Field(default=True, validation_alias="SMTP_USE_TLS")
+    resend_api_key: str | None = Field(default=None, validation_alias="RESEND_API_KEY")
+    email_from_endereco: str | None = Field(default=None, validation_alias="EMAIL_FROM_ENDERECO")
+    email_from_nome: str | None = Field(default=None, validation_alias="EMAIL_FROM_NOME")
 
     @field_validator("admin_password")
     @classmethod

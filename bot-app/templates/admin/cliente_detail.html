@@ -8,6 +8,19 @@
   <a class="btn btn-outline-dark" href="/admin/clientes?empresa_id={{ cliente.empresa_id }}">Voltar</a>
 </div>
 
+<div class="panel-card p-3 p-lg-4 mb-4">
+  <form method="post" action="/admin/clientes/{{ cliente.id }}/email" class="row g-3 align-items-end">
+    <div class="col-12 col-lg-6">
+      <label class="form-label fw-semibold" for="campo-email-cliente">E-mail</label>
+      <div class="text-secondary small mb-1">Só é usado se a empresa ativar o lembrete por e-mail — a conversa pelo WhatsApp não coleta isso automaticamente.</div>
+      <input type="email" name="email" id="campo-email-cliente" class="form-control" value="{{ cliente.email or '' }}" placeholder="cliente@exemplo.com" />
+    </div>
+    <div class="col-12 col-lg-auto">
+      <button type="submit" class="btn btn-outline-primary">Salvar e-mail</button>
+    </div>
+  </form>
+</div>
+
 <div class="row g-3 mb-4">
   <div class="col-6 col-xl-4">
     <div class="metric-card">
@@ -49,8 +62,12 @@
           <td><span class="badge text-bg-light border">{{ agendamento.status }}</span></td>
           <td>
             {% if agendamento.lembrete_enviado_em %}
-            <span class="badge text-bg-success">Enviado</span>
-            {% else %}
+            <span class="badge text-bg-success">WhatsApp</span>
+            {% endif %}
+            {% if agendamento.lembrete_email_enviado_em %}
+            <span class="badge text-bg-success">E-mail</span>
+            {% endif %}
+            {% if not agendamento.lembrete_enviado_em and not agendamento.lembrete_email_enviado_em %}
             <span class="badge text-bg-light border">Pendente</span>
             {% endif %}
           </td>

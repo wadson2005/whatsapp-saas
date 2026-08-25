@@ -140,7 +140,7 @@ Todas documentadas em [bot-app/.env.example](bot-app/.env.example). As mais rele
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | sim | Login do superadmin da plataforma (acesso a todas as empresas) — `ADMIN_PASSWORD` precisa ser forte, valores padrão são rejeitados na inicialização. Usuários por empresa (`admin`/`operador`) são cadastrados depois, em `/admin/usuarios` |
 | `SESSION_SECRET_KEY` | sim | Chave de assinatura de sessão (≥16 caracteres, gere com `openssl rand -hex 32`) |
 | `AI_ENABLED` | não (padrão `false`) | Liga a camada de IA — sem isso, comportamento idêntico ao de não ter essa camada |
-| `SMTP_HOST` / `SMTP_USUARIO` / `SMTP_SENHA` / `SMTP_REMETENTE` | não | Envio do e-mail de "esqueci minha senha" (`/admin/esqueci-senha`). Qualquer provedor com relay SMTP funciona. Sem isso, a tela continua respondendo normalmente, só não envia e-mail nenhum (fica só no log) |
+| `RESEND_API_KEY` / `EMAIL_FROM_ENDERECO` / `EMAIL_FROM_NOME` | não | Envio de e-mail via [Resend](https://resend.com) — usado na recuperação de senha (`/admin/esqueci-senha`) e, para as empresas que ativarem o canal, no lembrete de agendamento por e-mail. Sem isso, essas duas funcionalidades continuam respondendo normalmente, só não enviam e-mail nenhum (fica só no log) |
 
 > A maioria das variáveis operacionais (Meta, IA, lembretes, palavra de ativação) só serve como **valor inicial**: depois do primeiro boot, o sistema copia esses valores para a tabela `configuracao_sistema` e passa a usar o banco como fonte viva, editável em `/admin/configuracoes` sem reiniciar o processo.
 
@@ -210,9 +210,10 @@ O bot identifica a empresa pela `instance`, abre (ou recupera) o estado da conve
 - [x] Papéis e permissões no painel administrativo — login por empresa (`admin`/`operador`), superadmin de plataforma via `.env` como bootstrap.
 - [x] Cadastro manual de cliente final direto pelo painel.
 - [x] Criação do primeiro usuário da empresa integrada ao onboarding público — o onboarding já cria o usuário `admin` da empresa e autentica no painel automaticamente, sem depender de cadastro manual.
-- [x] Recuperação de senha self-service (`/admin/esqueci-senha`) via e-mail (SMTP genérico).
+- [x] Recuperação de senha self-service (`/admin/esqueci-senha`) via e-mail (Resend).
 - [x] Landing page pública e conta separada de empresa — onboarding vira só criação de conta; empresa é cadastrada depois, self-service, já logado.
 - [x] Ativação explícita do bot — conectar o WhatsApp não liga o atendimento sozinho; hub de configuração guiada (`/admin/configurar-bot`) com pré-requisitos reais para ativar.
+- [x] Lembrete de agendamento por WhatsApp e/ou e-mail — cada empresa escolhe o canal em `/admin/configurar-bot/lembretes`; falha em um canal nunca bloqueia nem repete o outro.
 - [ ] Cobrança recorrente (assinatura por empresa).
 - [ ] Observabilidade e auditoria mais completas (métricas operacionais, alertas).
 - [ ] Ampliar os pontos de fallback cobertos pela camada de IA e adicionar mais providers.

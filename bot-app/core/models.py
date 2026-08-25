@@ -41,6 +41,8 @@ class Empresa(Base):
     mensagem_confirmacao = Column(String)
     ativo = Column(Boolean, default=True)
     ativado_em = Column(DateTime, nullable=True)
+    lembrete_canal_whatsapp = Column(Boolean, default=True)
+    lembrete_canal_email = Column(Boolean, default=False)
     criado_em = Column(DateTime, default=datetime.utcnow)
 
     servicos = relationship("Servico", back_populates="empresa")
@@ -72,6 +74,7 @@ class ClienteFinal(Base):
     empresa_id = Column(Integer, ForeignKey("empresas.id"), nullable=False)
     telefone = Column(String, nullable=False)
     nome = Column(String)
+    email = Column(String, nullable=True)
     criado_em = Column(DateTime, default=datetime.utcnow)
 
     solicitacoes_atendimento = relationship("SolicitacaoAtendimento", back_populates="cliente")
@@ -124,7 +127,8 @@ class Agendamento(Base):
     status = Column(String, default="agendado")  # agendado, confirmado, concluido, cancelado
     cancelado_em = Column(DateTime)
     motivo_cancelamento = Column(String)
-    lembrete_enviado_em = Column(DateTime)
+    lembrete_enviado_em = Column(DateTime)  # marca o envio pelo canal WhatsApp
+    lembrete_email_enviado_em = Column(DateTime)
 
     empresa = relationship("Empresa", back_populates="agendamentos")
     servico = relationship("Servico")
@@ -179,6 +183,12 @@ class ConfiguracaoSistema(Base):
     meta_template_lembrete_idioma = Column(String, default="pt_BR")
     lembrete_antecedencia_horas = Column(Integer, default=24)
     lembrete_intervalo_minutos = Column(Integer, default=15)
+    ultimo_erro_lembrete_whatsapp = Column(String)
+    ultimo_erro_lembrete_whatsapp_em = Column(DateTime)
+
+    resend_api_key = Column(String)
+    email_from_endereco = Column(String)
+    email_from_nome = Column(String)
 
     ai_enabled = Column(Boolean, default=False)
     ai_provider = Column(String, default="openai")

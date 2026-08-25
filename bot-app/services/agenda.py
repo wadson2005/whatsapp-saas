@@ -456,6 +456,7 @@ def reagendar_agendamento(
     agendamento.duracao_minutos = duracao
     agendamento.status = "agendado"
     agendamento.lembrete_enviado_em = None
+    agendamento.lembrete_email_enviado_em = None
     db.commit()
     db.refresh(agendamento)
     return agendamento, validacao

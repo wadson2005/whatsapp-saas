@@ -24,7 +24,16 @@ def _proxima_segunda_10h() -> datetime:
     return proxima_segunda.replace(hour=10, minute=0, second=0, microsecond=0)
 
 
-def _seed_empresa(main, models, slug: str, nome: str, telefone: str, instancia: str):
+def _seed_empresa(
+    main,
+    models,
+    slug: str,
+    nome: str,
+    telefone: str,
+    instancia: str,
+    lembrete_canal_whatsapp: bool = True,
+    lembrete_canal_email: bool = False,
+):
     db = main.SessionLocal()
     try:
         empresa = models.Empresa(
@@ -37,6 +46,8 @@ def _seed_empresa(main, models, slug: str, nome: str, telefone: str, instancia: 
             horario_fechamento="18:00",
             intervalo_entre_atendimentos_minutos=15,
             ativo=True,
+            lembrete_canal_whatsapp=lembrete_canal_whatsapp,
+            lembrete_canal_email=lembrete_canal_email,
         )
         db.add(empresa)
         db.commit()
@@ -58,10 +69,10 @@ def _seed_servico(main, models, empresa, nome: str, duracao: int = 30):
         db.close()
 
 
-def _seed_cliente(main, models, empresa, telefone: str, nome: str):
+def _seed_cliente(main, models, empresa, telefone: str, nome: str, email: str | None = None):
     db = main.SessionLocal()
     try:
-        cliente = models.ClienteFinal(empresa_id=empresa.id, telefone=telefone, nome=nome)
+        cliente = models.ClienteFinal(empresa_id=empresa.id, telefone=telefone, nome=nome, email=email)
         db.add(cliente)
         db.commit()
         db.refresh(cliente)
@@ -299,5 +310,151 @@ def test_reagendamento_reseta_lembrete_enviado_em(monkeypatch, tmp_path):
         atualizado, validacao = agenda.reagendar_agendamento(db, empresa_db, agendamento_db, novo_horario)
         assert validacao.ok
         assert atualizado.lembrete_enviado_em is None
+        assert atualizado.lembrete_email_enviado_em is None
     finally:
         db.close()
+
+
+# --- multi-canal (WhatsApp + e-mail) ------------------------------------------------
+
+
+def test_canal_so_email_com_cliente_com_email_envia_so_por_email(monkeypatch, tmp_path):
+    main, models, lembretes, _ = carregar_app(monkeypatch, tmp_path)
+    lembretes.enviar_template = AsyncMock(return_value={"messages": [{"id": "wamid.1"}]})
+    lembretes.enviar_email = AsyncMock(return_value=None)
+
+    empresa = _seed_empresa(
+        main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a",
+        lembrete_canal_whatsapp=False, lembrete_canal_email=True,
+    )
+    servico = _seed_servico(main, models, empresa, "Corte")
+    cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email="ana@exemplo.com")
+    agendamento = _seed_agendamento(main, models, empresa, cliente, servico, datetime.utcnow() + timedelta(hours=2))
+
+    db = main.SessionLocal()
+    try:
+        enviados = asyncio.run(lembretes.enviar_lembretes_pendentes(db))
+    finally:
+        db.close()
+
+    assert enviados == 1
+    lembretes.enviar_email.assert_awaited_once()
+    lembretes.enviar_template.assert_not_awaited()
+
+    db = main.SessionLocal()
+    try:
+        atualizado = db.query(models.Agendamento).filter_by(id=agendamento.id).first()
+        assert atualizado.lembrete_email_enviado_em is not None
+        assert atualizado.lembrete_enviado_em is None
+    finally:
+        db.close()
+
+
+def test_canal_so_email_sem_cliente_com_email_cai_para_whatsapp(monkeypatch, tmp_path):
+    main, models, lembretes, _ = carregar_app(monkeypatch, tmp_path)
+    lembretes.enviar_template = AsyncMock(return_value={"messages": [{"id": "wamid.1"}]})
+    lembretes.enviar_email = AsyncMock(return_value=None)
+
+    empresa = _seed_empresa(
+        main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a",
+        lembrete_canal_whatsapp=False, lembrete_canal_email=True,
+    )
+    servico = _seed_servico(main, models, empresa, "Corte")
+    cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email=None)
+    agendamento = _seed_agendamento(main, models, empresa, cliente, servico, datetime.utcnow() + timedelta(hours=2))
+
+    db = main.SessionLocal()
+    try:
+        enviados = asyncio.run(lembretes.enviar_lembretes_pendentes(db))
+    finally:
+        db.close()
+
+    assert enviados == 1
+    lembretes.enviar_template.assert_awaited_once()
+    lembretes.enviar_email.assert_not_awaited()
+
+    db = main.SessionLocal()
+    try:
+        atualizado = db.query(models.Agendamento).filter_by(id=agendamento.id).first()
+        assert atualizado.lembrete_enviado_em is not None
+        assert atualizado.lembrete_email_enviado_em is not None  # canal fechado, mesmo sem tentativa real
+    finally:
+        db.close()
+
+
+def test_canal_ambos_falha_de_email_nao_impede_nem_repete_whatsapp(monkeypatch, tmp_path):
+    main, models, lembretes, _ = carregar_app(monkeypatch, tmp_path)
+    lembretes.enviar_template = AsyncMock(return_value={"messages": [{"id": "wamid.1"}]})
+    lembretes.enviar_email = AsyncMock(side_effect=lembretes.EmailError("Resend recusou o envio"))
+
+    empresa = _seed_empresa(
+        main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a",
+        lembrete_canal_whatsapp=True, lembrete_canal_email=True,
+    )
+    servico = _seed_servico(main, models, empresa, "Corte")
+    cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email="ana@exemplo.com")
+    agendamento = _seed_agendamento(main, models, empresa, cliente, servico, datetime.utcnow() + timedelta(hours=2))
+
+    db = main.SessionLocal()
+    try:
+        enviados_1 = asyncio.run(lembretes.enviar_lembretes_pendentes(db))
+    finally:
+        db.close()
+
+    assert enviados_1 == 1
+    assert lembretes.enviar_template.await_count == 1
+    assert lembretes.enviar_email.await_count == 1
+
+    db = main.SessionLocal()
+    try:
+        atualizado = db.query(models.Agendamento).filter_by(id=agendamento.id).first()
+        assert atualizado.lembrete_enviado_em is not None
+        assert atualizado.lembrete_email_enviado_em is None
+    finally:
+        db.close()
+
+    # próximo ciclo: e-mail continua pendente e é tentado de novo, mas o WhatsApp
+    # já enviado com sucesso NUNCA é repetido.
+    db = main.SessionLocal()
+    try:
+        enviados_2 = asyncio.run(lembretes.enviar_lembretes_pendentes(db))
+    finally:
+        db.close()
+
+    assert enviados_2 == 0
+    assert lembretes.enviar_template.await_count == 1
+    assert lembretes.enviar_email.await_count == 2
+
+
+def test_canal_ambos_ja_enviados_nao_reaparece_na_busca(monkeypatch, tmp_path):
+    main, models, lembretes, _ = carregar_app(monkeypatch, tmp_path)
+    lembretes.enviar_template = AsyncMock(return_value={"messages": [{"id": "wamid.1"}]})
+    lembretes.enviar_email = AsyncMock(return_value=None)
+
+    empresa = _seed_empresa(
+        main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a",
+        lembrete_canal_whatsapp=True, lembrete_canal_email=True,
+    )
+    servico = _seed_servico(main, models, empresa, "Corte")
+    cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email="ana@exemplo.com")
+    _seed_agendamento(
+        main, models, empresa, cliente, servico, datetime.utcnow() + timedelta(hours=2),
+        lembrete_enviado_em=datetime.utcnow() - timedelta(minutes=5),
+    )
+    db = main.SessionLocal()
+    try:
+        pendente = db.query(models.Agendamento).order_by(models.Agendamento.id.desc()).first()
+        pendente.lembrete_email_enviado_em = datetime.utcnow() - timedelta(minutes=5)
+        db.commit()
+    finally:
+        db.close()
+
+    db = main.SessionLocal()
+    try:
+        enviados = asyncio.run(lembretes.enviar_lembretes_pendentes(db))
+    finally:
+        db.close()
+
+    assert enviados == 0
+    lembretes.enviar_template.assert_not_awaited()
+    lembretes.enviar_email.assert_not_awaited()

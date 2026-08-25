@@ -1,0 +1,49 @@
+{% extends 'admin/base.html' %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-8">
+    <a href="/admin/configurar-bot" class="small d-inline-block mb-3">&larr; Voltar para a configuração</a>
+    <div class="panel-card p-3 p-lg-4">
+      <div class="mb-4">
+        <h1 class="section-title mb-1">Lembretes automáticos</h1>
+        <p class="text-secondary mb-0">Escolha por qual canal seus clientes recebem o lembrete antes do horário marcado. Pode ativar os dois.</p>
+      </div>
+
+      {% if not meta_configurado %}
+      <div class="alert alert-warning" role="alert">
+        O envio por WhatsApp depende de um template aprovado no Meta Business Manager, configurado pelo superadmin em <strong>Configurações</strong>. Sem isso, os lembretes por WhatsApp não saem — mesmo com o canal ativado aqui.
+      </div>
+      {% endif %}
+      {% if not email_configurado %}
+      <div class="alert alert-warning" role="alert">
+        O envio por e-mail ainda não está configurado pelo superadmin (chave do Resend). Sem isso, os lembretes por e-mail não saem — mesmo com o canal ativado aqui.
+      </div>
+      {% endif %}
+
+      <form method="post" action="/admin/configurar-bot/lembretes" class="row g-4">
+        <div class="col-12">
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" name="lembrete_canal_whatsapp" id="canal-whatsapp" {% if empresa.lembrete_canal_whatsapp %}checked{% endif %} />
+            <label class="form-check-label fw-semibold" for="canal-whatsapp">Lembrete por WhatsApp</label>
+          </div>
+          <div class="text-secondary small mt-1">Enviado como mensagem de template, aprovada previamente pela Meta — é o único formato permitido fora da janela de 24h de atendimento.</div>
+        </div>
+        <div class="col-12">
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" name="lembrete_canal_email" id="canal-email" {% if empresa.lembrete_canal_email %}checked{% endif %} />
+            <label class="form-check-label fw-semibold" for="canal-email">Lembrete por e-mail</label>
+          </div>
+          <div class="text-secondary small mt-1">
+            Só funciona para clientes com e-mail cadastrado (adicione em <a href="/admin/clientes?empresa_id={{ empresa.id }}">Clientes</a> — a conversa pelo WhatsApp não coleta e-mail automaticamente).
+            Se ativar só este canal e um cliente não tiver e-mail, o lembrete cai automaticamente para o WhatsApp nesse caso, pra ninguém ficar sem aviso.
+          </div>
+        </div>
+        <div class="col-12 d-flex justify-content-end gap-2 pt-2">
+          <a href="/admin/configurar-bot" class="btn btn-outline-secondary">Cancelar</a>
+          <button type="submit" class="btn btn-brand">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

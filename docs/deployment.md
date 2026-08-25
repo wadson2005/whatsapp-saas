@@ -72,9 +72,13 @@ Ver a lista completa em [bot-app/.env.example](../bot-app/.env.example) e na se�
 >
 > **`WEBHOOK_SECRET` especificamente:** `POST /webhook` passou a exigir `?token=<WEBHOOK_SECRET>` na URL (proteção contra qualquer um forjar mensagens de qualquer empresa). Esse token só é embutido na URL do webhook no momento em que a instância é **criada** na Evolution API (onboarding ou "Nova empresa" no painel). Empresas cadastradas **antes** dessa mudança têm o webhook configurado na Evolution API com a URL antiga, sem token — depois do deploy, o bot vai parar de responder para elas (toda mensagem cai em 401) até o webhook dessa instância ser reconfigurado manualmente na Evolution API (Manager UI ou API) apontando para `PUBLIC_BASE_URL/webhook?token=<WEBHOOK_SECRET>`.
 
-## Template de mensagem para lembretes
+## Lembretes de agendamento
 
-A Graph API do WhatsApp só permite mensagem livre dentro da janela de 24h de atendimento ao cliente. Como o lembrete é enviado proativamente, ele precisa de um **template aprovado no Meta Business Manager** — sem esse cadastro, os lembretes falham silenciosamente (erro registrado em log, sem quebrar a aplicação).
+Cada empresa escolhe em `/admin/configurar-bot/lembretes` se quer lembrete por WhatsApp, e-mail ou os dois — ver [docs/architecture.md](architecture.md#lembretes-de-agendamento-whatsapp-eou-e-mail). Para e-mail, basta configurar `RESEND_API_KEY`/`EMAIL_FROM_ENDERECO` (ver [Resend](https://resend.com)) — não exige nenhum cadastro prévio de template. Para WhatsApp, veja abaixo.
+
+### Template de mensagem para lembrete por WhatsApp
+
+A Graph API do WhatsApp só permite mensagem livre dentro da janela de 24h de atendimento ao cliente. Como o lembrete é enviado proativamente, ele precisa de um **template aprovado no Meta Business Manager** — sem esse cadastro, os lembretes por WhatsApp falham silenciosamente (erro registrado em log e exibido para o superadmin em `/admin/configuracoes`, sem quebrar a aplicação).
 
 Cadastre no Meta Business Manager:
 
@@ -112,7 +116,7 @@ cd bot-app && python -m scripts.retomar
 - [ ] `ADMIN_PASSWORD`, `SESSION_SECRET_KEY` e `WEBHOOK_SECRET` gerados com valores fortes (não os exemplos do `.env.example`).
 - [ ] `PUBLIC_BASE_URL` configurado com o domínio público real e o Caddy já respondendo nele — necessário antes de cadastrar a primeira empresa (`/admin/empresas/cadastrar` ou `/admin/empresas/nova`).
 - [ ] `DATABASE_URL` apontando para PostgreSQL (não SQLite) — o schema é compatível com os dois, mas SQLite não é recomendado para múltiplos workers/produção.
-- [ ] Template de lembrete aprovado no Meta Business Manager.
+- [ ] Template de lembrete aprovado no Meta Business Manager (se for usar o canal WhatsApp) e/ou `RESEND_API_KEY`/`EMAIL_FROM_ENDERECO` configurados (se for usar o canal e-mail).
 - [ ] Postgres e Redis expostos apenas em `127.0.0.1` (não publicamente).
 - [ ] `docker compose up --build` executado após qualquer mudança de código ou de estrutura de pastas — a imagem precisa ser reconstruída.
 - [ ] `/readyz` retornando `200` antes de apontar o domínio/tráfego real para o serviço.

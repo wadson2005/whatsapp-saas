@@ -40,7 +40,14 @@
 
   <div class="panel-card p-3 p-lg-4 mb-4">
     <h2 class="h5 mb-1">Lembretes automáticos</h2>
-    <p class="text-secondary small mb-3">O template precisa estar aprovado no Meta Business Manager antes de mudar o nome aqui.</p>
+    <p class="text-secondary small mb-3">O template precisa estar aprovado no Meta Business Manager antes de mudar o nome aqui. Cada empresa escolhe pelo próprio painel (Configurar bot &rarr; Lembretes) se quer usar WhatsApp, e-mail ou os dois.</p>
+    {% if config.ultimo_erro_lembrete_whatsapp %}
+    <div class="alert alert-danger" role="alert">
+      <strong>Último erro ao enviar lembrete por WhatsApp:</strong> {{ config.ultimo_erro_lembrete_whatsapp }}
+      <span class="text-secondary">({{ config.ultimo_erro_lembrete_whatsapp_em.strftime('%d/%m/%Y %H:%M') if config.ultimo_erro_lembrete_whatsapp_em else '' }})</span>
+      — confira se o template abaixo está aprovado no Meta Business Manager.
+    </div>
+    {% endif %}
     <div class="row g-3">
       <div class="col-12 col-lg-4">
         <label class="form-label">Nome do template</label>
@@ -57,6 +64,25 @@
       <div class="col-6 col-lg-3">
         <label class="form-label">Intervalo de verificação (min)</label>
         <input type="number" name="lembrete_intervalo_minutos" class="form-control" min="1" step="1" value="{{ config.lembrete_intervalo_minutos }}" required />
+      </div>
+    </div>
+  </div>
+
+  <div class="panel-card p-3 p-lg-4 mb-4">
+    <h2 class="h5 mb-1">E-mail (Resend)</h2>
+    <p class="text-secondary small mb-3">Usado na recuperação de senha do painel e, para as empresas que ativarem o canal, no lembrete de agendamento por e-mail.</p>
+    <div class="row g-3">
+      <div class="col-12 col-lg-4">
+        <label class="form-label">Chave de API do Resend</label>
+        <input type="password" name="resend_api_key" class="form-control" placeholder="{% if resend_api_key_configurada %}•••••••• (já configurada — deixe em branco para manter){% else %}Nenhuma chave configurada{% endif %}" autocomplete="new-password" />
+      </div>
+      <div class="col-12 col-lg-4">
+        <label class="form-label">E-mail remetente</label>
+        <input type="email" name="email_from_endereco" class="form-control" value="{{ config.email_from_endereco or '' }}" placeholder="lembretes@seudominio.com" />
+      </div>
+      <div class="col-12 col-lg-4">
+        <label class="form-label">Nome do remetente (opcional)</label>
+        <input type="text" name="email_from_nome" class="form-control" value="{{ config.email_from_nome or '' }}" placeholder="WhatsApp SaaS" />
       </div>
     </div>
   </div>

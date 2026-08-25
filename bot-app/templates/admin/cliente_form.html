@@ -25,6 +25,10 @@
           <label class="form-label">Telefone (WhatsApp)</label>
           <input type="text" name="telefone" class="form-control" placeholder="Ex.: 5511999999999" required value="{{ cliente.telefone if cliente else '' }}" />
         </div>
+        <div class="col-12 col-lg-6">
+          <label class="form-label">E-mail (opcional)</label>
+          <input type="email" name="email" class="form-control" placeholder="Necessário só se quiser usar lembrete por e-mail" value="{{ cliente.email if cliente and cliente.email else '' }}" />
+        </div>
         <div class="col-12 d-flex justify-content-end gap-2 pt-2">
           <a href="/admin/clientes" class="btn btn-outline-secondary">Cancelar</a>
           <button type="submit" class="btn btn-brand">Salvar</button>

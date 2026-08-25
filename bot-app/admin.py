@@ -17,7 +17,7 @@ from starlette.templating import Jinja2Templates
 from core.config import settings
 from core.database import get_db
 from core.models import Agendamento, ClienteFinal, Empresa, EmpresaConhecimento, Servico, SolicitacaoAtendimento, UsuarioPainel
-from integrations.email_client import EmailError, enviar_email
+from integrations.email_client import EmailError, email_configurado, enviar_email
 from integrations.evolution_client import (
     EvolutionAPIConexaoError,
     EvolutionAPIError,
@@ -1080,6 +1080,43 @@ async def configurar_bot_atendimento_submit(request: Request, db: Session = Depe
     return RedirectResponse(url="/admin/configurar-bot?message=Atendimento personalizado com sucesso.", status_code=303)
 
 
+@admin_app.get("/configurar-bot/lembretes", response_class=HTMLResponse)
+async def configurar_bot_lembretes_page(request: Request, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    empresa_id = _query_empresa_id(request)
+    _, empresa = _base_empresa_contexto(db, request, empresa_id)
+    if not empresa:
+        return RedirectResponse(url="/admin/configurar-bot", status_code=303)
+
+    config = obter_configuracao(db)
+
+    return templates.TemplateResponse(
+        request,
+        "admin/configurar_bot_lembretes.html",
+        page_context(
+            request,
+            title="Lembretes automáticos",
+            empresa=empresa,
+            meta_configurado=bool(config.meta_token and config.meta_phone_number_id and config.meta_template_lembrete_nome),
+            email_configurado=email_configurado(config),
+        ),
+    )
+
+
+@admin_app.post("/configurar-bot/lembretes")
+async def configurar_bot_lembretes_submit(request: Request, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    empresa_id = _query_empresa_id(request)
+    _, empresa = _base_empresa_contexto(db, request, empresa_id)
+    if not empresa:
+        return RedirectResponse(url="/admin/configurar-bot", status_code=303)
+
+    form = await request.form()
+    empresa.lembrete_canal_whatsapp = parse_bool(form.get("lembrete_canal_whatsapp"))
+    empresa.lembrete_canal_email = parse_bool(form.get("lembrete_canal_email"))
+    db.commit()
+
+    return RedirectResponse(url="/admin/configurar-bot?message=Canais de lembrete atualizados com sucesso.", status_code=303)
+
+
 @admin_app.get("/configurar-bot/horarios", response_class=HTMLResponse)
 async def configurar_bot_horarios_page(request: Request, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
     empresa_id = _query_empresa_id(request)
@@ -1526,6 +1563,7 @@ async def cliente_new_submit(request: Request, db: Session = Depends(get_db), _:
     empresa = load_empresa(db, request, empresa_id)
     nome = parse_optional_str(form.get("nome"))
     telefone = _normalizar_telefone(form.get("telefone"))
+    email = parse_optional_str(form.get("email"))
 
     erro = None
     if not telefone:
@@ -1542,7 +1580,7 @@ async def cliente_new_submit(request: Request, db: Session = Depends(get_db), _:
                 request,
                 title="Novo cliente",
                 empresas=empresas,
-                cliente=SimpleNamespace(nome=nome, telefone=form.get("telefone") or ""),
+                cliente=SimpleNamespace(nome=nome, telefone=form.get("telefone") or "", email=email or ""),
                 selected_empresa_id=empresa_id,
                 action_url="/admin/clientes/novo",
                 error=erro,
@@ -1550,7 +1588,7 @@ async def cliente_new_submit(request: Request, db: Session = Depends(get_db), _:
             status_code=400,
         )
 
-    cliente = ClienteFinal(empresa_id=empresa.id, telefone=telefone, nome=nome)
+    cliente = ClienteFinal(empresa_id=empresa.id, telefone=telefone, nome=nome, email=email)
     db.add(cliente)
     db.commit()
     db.refresh(cliente)
@@ -1592,6 +1630,16 @@ async def cliente_detail(request: Request, cliente_id: int, db: Session = Depend
             solicitacoes=solicitacoes,
         ),
     )
+
+
+@admin_app.post("/clientes/{cliente_id}/email")
+async def cliente_email_submit(request: Request, cliente_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+    cliente = load_cliente(db, request, cliente_id)
+    form = await request.form()
+    cliente.email = parse_optional_str(form.get("email"))
+    db.commit()
+
+    return RedirectResponse(url=f"/admin/clientes/{cliente.id}?message=E-mail atualizado com sucesso.", status_code=303)
 
 
 @admin_app.get("/solicitacoes-atendimento", response_class=HTMLResponse)
@@ -1728,6 +1776,7 @@ async def configuracoes_page(request: Request, db: Session = Depends(get_db), _:
             config=config,
             meta_token_configurado=bool(config.meta_token),
             ai_api_key_configurada=bool(config.ai_api_key),
+            resend_api_key_configurada=bool(config.resend_api_key),
         ),
     )
 
@@ -1743,6 +1792,8 @@ async def configuracoes_submit(request: Request, db: Session = Depends(get_db), 
         "meta_template_lembrete_idioma": (form.get("meta_template_lembrete_idioma") or "pt_BR").strip(),
         "lembrete_antecedencia_horas": parse_optional_int(form.get("lembrete_antecedencia_horas")) or 24,
         "lembrete_intervalo_minutos": parse_optional_int(form.get("lembrete_intervalo_minutos")) or 15,
+        "email_from_endereco": parse_optional_str(form.get("email_from_endereco")),
+        "email_from_nome": parse_optional_str(form.get("email_from_nome")),
         "ai_enabled": parse_bool(form.get("ai_enabled")),
         "ai_provider": (form.get("ai_provider") or "openai").strip(),
         "ai_model": (form.get("ai_model") or "gpt-4o-mini").strip(),
@@ -1757,6 +1808,10 @@ async def configuracoes_submit(request: Request, db: Session = Depends(get_db), 
     ai_api_key_novo = (form.get("ai_api_key") or "").strip()
     if ai_api_key_novo:
         campos["ai_api_key"] = ai_api_key_novo
+
+    resend_api_key_novo = (form.get("resend_api_key") or "").strip()
+    if resend_api_key_novo:
+        campos["resend_api_key"] = resend_api_key_novo
 
     atualizar_configuracao(db, **campos)
 
