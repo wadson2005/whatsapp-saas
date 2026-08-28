@@ -191,13 +191,36 @@ def extrair_conteudo(dados: dict) -> tuple[str | None, str | None]:
     """Retorna (texto, id_interacao).
 
     - Se for texto digitado: (texto_digitado, None)
-    - Se for clique em botão/lista: (titulo_clicado, id_do_botao)
+    - Se for clique em botão/lista: (titulo_clicado, id_clicado)
+
+    Formato real da Evolution API (Baileys) — confirmado direto no código-fonte
+    da versão em produção (v2.3.6, `main.mjs.map`), já que a documentação
+    pública não cobre o payload de resposta de botão/lista:
+    - Botão: `message.buttonsResponseMessage.{selectedButtonId, selectedDisplayText}`
+    - Lista: `message.listResponseMessage.{title, singleSelectReply.selectedRowId}`
+    Isso é diferente do formato do Meta Graph API — nunca confundir os dois.
     """
     mensagem = dados.get("message", {})
 
     if "conversation" in mensagem:
         return mensagem["conversation"], None
 
+    resposta_botao = mensagem.get("buttonsResponseMessage") or {}
+    button_id = resposta_botao.get("selectedButtonId")
+    if button_id:
+        return resposta_botao.get("selectedDisplayText") or button_id, button_id
+
+    resposta_lista = mensagem.get("listResponseMessage") or {}
+    row_id = (resposta_lista.get("singleSelectReply") or {}).get("selectedRowId")
+    if row_id:
+        return resposta_lista.get("title") or row_id, row_id
+
+    # Formato do Meta Graph API — mantido por clareza/compatibilidade futura, mas
+    # inerte hoje: este /webhook só recebe chamadas da Evolution API (formato
+    # Baileys acima), nunca diretamente do Meta (que exigiria verificação própria
+    # via hub.challenge, não implementada). Não remover a integração da Meta em
+    # si (integrations/meta_client.py) — só o envio de mensagens de conversa foi
+    # desacoplado dela.
     if "interactive" in mensagem:
         interativo = mensagem["interactive"]
         if interativo.get("type") == "button_reply":

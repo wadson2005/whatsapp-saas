@@ -9,7 +9,7 @@ from ai.models import Intent
 from ai.service import criar_ai_service
 from core.models import Agendamento, ClienteFinal, Empresa, Servico
 from core.redis_client import redis_cliente
-from integrations.meta_client import enviar_botoes, enviar_lista
+from integrations.evolution_client import enviar_botoes, enviar_lista
 from services.agenda import (
     agendar_servico,
     cancelar_agendamento,
@@ -241,6 +241,7 @@ async def _mostrar_menu_principal(db, empresa: Empresa, numero: str, contexto: d
         atalhos.append({"id": "atendimento:humano", "titulo": TEXTO_BOTAO_FALAR_COM_ATENDENTE, "descricao": "Falar com uma pessoa"})
 
     await enviar_lista(
+        instance=empresa.evolution_instance_name,
         numero=_numero_limpo(numero),
         texto=texto,
         titulo_botao="Abrir menu",
@@ -258,6 +259,7 @@ async def _mostrar_atendimento_humano(
 ):
     if not empresa.permitir_atendimento_humano:
         await enviar_botoes(
+            instance=empresa.evolution_instance_name,
             numero=_numero_limpo(numero),
             texto=_empresa_mensagem(
                 empresa,
@@ -300,6 +302,7 @@ async def _mostrar_atendimento_humano(
     )
 
     await enviar_botoes(
+        instance=empresa.evolution_instance_name,
         numero=_numero_limpo(numero),
         texto=texto,
         botoes=[{"id": "menu", "titulo": TEXTO_BOTAO_MENU}],
@@ -310,6 +313,7 @@ async def _solicitar_confirmacao_cancelamento(db, empresa: Empresa, numero: str,
     agendamento = _agendamento_do_contexto(db, empresa, numero, contexto)
     if not agendamento:
         await enviar_botoes(
+            instance=empresa.evolution_instance_name,
             numero=_numero_limpo(numero),
             texto=_empresa_mensagem(empresa, "mensagem_encerramento", "Não encontrei um agendamento ativo para cancelar."),
             botoes=[{"id": "menu", "titulo": TEXTO_BOTAO_MENU}],
@@ -325,6 +329,7 @@ async def _solicitar_confirmacao_cancelamento(db, empresa: Empresa, numero: str,
     )
 
     await enviar_botoes(
+        instance=empresa.evolution_instance_name,
         numero=_numero_limpo(numero),
         texto=(
             f"Você quer mesmo cancelar *{agendamento.servico.nome if agendamento.servico else 'o agendamento'}* em "
@@ -344,6 +349,7 @@ async def _confirmar_cancelamento(db, empresa: Empresa, numero: str, contexto: d
     if not agendamento:
         limpar_estado(empresa.id, numero)
         await enviar_botoes(
+            instance=empresa.evolution_instance_name,
             numero=_numero_limpo(numero),
             texto=_empresa_mensagem(empresa, "mensagem_encerramento", "Não encontrei um agendamento ativo para cancelar."),
             botoes=[{"id": "menu", "titulo": TEXTO_BOTAO_MENU}],
@@ -354,6 +360,7 @@ async def _confirmar_cancelamento(db, empresa: Empresa, numero: str, contexto: d
     limpar_estado(empresa.id, numero)
 
     await enviar_botoes(
+        instance=empresa.evolution_instance_name,
         numero=_numero_limpo(numero),
         texto=(
             f"Agendamento de *{agendamento.servico.nome if agendamento.servico else 'serviço'}* em "
@@ -379,6 +386,7 @@ async def _manter_agendamento(db, empresa: Empresa, numero: str, contexto: dict)
         texto = "Perfeito, mantive sua solicitação como está."
 
     await enviar_botoes(
+        instance=empresa.evolution_instance_name,
         numero=_numero_limpo(numero),
         texto=texto,
         botoes=[{"id": "menu", "titulo": TEXTO_BOTAO_MENU}],
@@ -444,6 +452,7 @@ async def _mostrar_lista_servicos(db, empresa: Empresa, numero: str):
     )
     if not servicos:
         await enviar_botoes(
+            instance=empresa.evolution_instance_name,
             numero=_numero_limpo(numero),
             texto=(
                 f"Olá! No momento a {empresa.nome} não tem serviços ativos cadastrados.\n\n"
@@ -468,6 +477,7 @@ async def _mostrar_lista_servicos(db, empresa: Empresa, numero: str):
     ]
 
     await enviar_lista(
+        instance=empresa.evolution_instance_name,
         numero=_numero_limpo(numero),
         texto=_empresa_mensagem(
             empresa,
@@ -503,6 +513,7 @@ async def _servico_escolhido(db, empresa: Empresa, numero: str, texto: str, cont
 
     if not servico:
         await enviar_botoes(
+            instance=empresa.evolution_instance_name,
             numero=_numero_limpo(numero),
             texto="Por favor, toque em uma das opções da lista para escolher o serviço.",
             botoes=[{"id": "ver_servicos", "titulo": TEXTO_BOTAO_VER_SERVICOS}],
@@ -513,6 +524,7 @@ async def _servico_escolhido(db, empresa: Empresa, numero: str, texto: str, cont
     salvar_estado(empresa.id, numero, "aguardando_periodo", contexto, ttl_segundos=_ttl_contexto(empresa))
 
     await enviar_botoes(
+        instance=empresa.evolution_instance_name,
         numero=_numero_limpo(numero),
         texto=f"Você escolheu: {servico.nome}.\n\nQual período prefere?",
         botoes=[
@@ -533,6 +545,7 @@ async def _periodo_escolhido(db, empresa: Empresa, numero: str, texto: str, cont
     if _texto_bate(texto, TEXTO_BOTAO_OUTRO) or id_interacao == "periodo:outro":
         salvar_estado(empresa.id, numero, "aguardando_horario_texto", contexto, ttl_segundos=_ttl_contexto(empresa))
         await enviar_botoes(
+            instance=empresa.evolution_instance_name,
             numero=_numero_limpo(numero),
             texto=(
                 "Sem problemas. Envie a data e a hora no formato:\n"
@@ -551,6 +564,7 @@ async def _periodo_escolhido(db, empresa: Empresa, numero: str, texto: str, cont
 
     if not periodo:
         await enviar_botoes(
+            instance=empresa.evolution_instance_name,
             numero=_numero_limpo(numero),
             texto="Por favor, toque em uma das opções abaixo.",
             botoes=[
@@ -565,6 +579,7 @@ async def _periodo_escolhido(db, empresa: Empresa, numero: str, texto: str, cont
     if not slots:
         salvar_estado(empresa.id, numero, "aguardando_periodo", contexto, ttl_segundos=_ttl_contexto(empresa))
         await enviar_botoes(
+            instance=empresa.evolution_instance_name,
             numero=_numero_limpo(numero),
             texto=(
                 f"Não encontrei horários disponíveis para {periodo} nos próximos dias.\n\n"
@@ -588,6 +603,7 @@ async def _periodo_escolhido(db, empresa: Empresa, numero: str, texto: str, cont
     )
 
     await enviar_lista(
+        instance=empresa.evolution_instance_name,
         numero=_numero_limpo(numero),
         texto=(
             f"Horários disponíveis para {servico.nome} ({'manhã' if periodo == 'manha' else 'tarde'}).\n"
@@ -611,6 +627,7 @@ async def _slot_escolhido(db, empresa: Empresa, numero: str, texto: str, context
 
     if inicio_em is None:
         await enviar_botoes(
+            instance=empresa.evolution_instance_name,
             numero=_numero_limpo(numero),
             texto=(
                 "Não consegui entender esse horário.\n"
@@ -626,6 +643,7 @@ async def _slot_escolhido(db, empresa: Empresa, numero: str, texto: str, context
         if validacao.sugestoes:
             salvar_estado(empresa.id, numero, "aguardando_slot", contexto, ttl_segundos=_ttl_contexto(empresa))
             await enviar_lista(
+                instance=empresa.evolution_instance_name,
                 numero=_numero_limpo(numero),
                 texto=validacao.mensagem,
                 titulo_botao="Ver alternativas",
@@ -635,6 +653,7 @@ async def _slot_escolhido(db, empresa: Empresa, numero: str, texto: str, context
         else:
             salvar_estado(empresa.id, numero, "aguardando_periodo", contexto, ttl_segundos=_ttl_contexto(empresa))
             await enviar_botoes(
+                instance=empresa.evolution_instance_name,
                 numero=_numero_limpo(numero),
                 texto=validacao.mensagem,
                 botoes=[
@@ -647,6 +666,7 @@ async def _slot_escolhido(db, empresa: Empresa, numero: str, texto: str, context
 
     if not agendamento:
         await enviar_botoes(
+            instance=empresa.evolution_instance_name,
             numero=_numero_limpo(numero),
             texto="Não foi possível concluir o agendamento. Tente novamente em instantes.",
             botoes=[{"id": "menu", "titulo": TEXTO_BOTAO_MENU}],
@@ -662,6 +682,7 @@ async def _slot_escolhido(db, empresa: Empresa, numero: str, texto: str, context
     )
 
     await enviar_botoes(
+        instance=empresa.evolution_instance_name,
         numero=_numero_limpo(numero),
         texto=(
             f"Perfeito! Agendamento de *{servico.nome}* para *{formatar_data_hora(agendamento.data_hora)}* registrado ✅\n\n"
@@ -685,6 +706,7 @@ async def _horario_texto_livre(db, empresa: Empresa, numero: str, texto: str, co
     inicio_em = parsear_data_hora_texto(texto)
     if inicio_em is None:
         await enviar_botoes(
+            instance=empresa.evolution_instance_name,
             numero=_numero_limpo(numero),
             texto=(
                 "Não consegui entender a data e a hora.\n"
@@ -698,6 +720,7 @@ async def _horario_texto_livre(db, empresa: Empresa, numero: str, texto: str, co
     if not validacao.ok:
         if validacao.sugestoes:
             await enviar_lista(
+                instance=empresa.evolution_instance_name,
                 numero=_numero_limpo(numero),
                 texto=validacao.mensagem,
                 titulo_botao="Ver alternativas",
@@ -706,6 +729,7 @@ async def _horario_texto_livre(db, empresa: Empresa, numero: str, texto: str, co
             )
         else:
             await enviar_botoes(
+                instance=empresa.evolution_instance_name,
                 numero=_numero_limpo(numero),
                 texto=validacao.mensagem,
                 botoes=[{"id": "menu", "titulo": TEXTO_BOTAO_MENU}],
@@ -721,6 +745,7 @@ async def _horario_texto_livre(db, empresa: Empresa, numero: str, texto: str, co
     )
 
     await enviar_botoes(
+        instance=empresa.evolution_instance_name,
         numero=_numero_limpo(numero),
         texto=(
             f"Perfeito! Agendamento de *{servico.nome}* para *{formatar_data_hora(agendamento.data_hora)}* registrado ✅\n\n"
@@ -743,6 +768,7 @@ async def _mostrar_slots_reagendamento(db, empresa: Empresa, numero: str, contex
         agendamento = _agendamento_ativo_do_numero(db, empresa, numero)
     if not agendamento:
         await enviar_botoes(
+            instance=empresa.evolution_instance_name,
             numero=_numero_limpo(numero),
             texto="Não encontrei um agendamento ativo para reagendar.",
             botoes=[{"id": "menu", "titulo": TEXTO_BOTAO_MENU}],
@@ -759,6 +785,7 @@ async def _mostrar_slots_reagendamento(db, empresa: Empresa, numero: str, contex
     )
     if not slots:
         await enviar_botoes(
+            instance=empresa.evolution_instance_name,
             numero=_numero_limpo(numero),
             texto="Não encontrei novos horários livres para reagendamento.",
             botoes=[{"id": "menu", "titulo": TEXTO_BOTAO_MENU}],
@@ -774,6 +801,7 @@ async def _mostrar_slots_reagendamento(db, empresa: Empresa, numero: str, contex
     )
 
     await enviar_lista(
+        instance=empresa.evolution_instance_name,
         numero=_numero_limpo(numero),
         texto=(
             f"Escolha um novo horário para *{servico.nome}*:\n"
@@ -789,6 +817,7 @@ async def _reagendar_slot_escolhido(db, empresa: Empresa, numero: str, texto: st
     agendamento_id = contexto.get("agendamento_id")
     if not agendamento_id:
         await enviar_botoes(
+            instance=empresa.evolution_instance_name,
             numero=_numero_limpo(numero),
             texto="Não encontrei o agendamento atual para reagendar.",
             botoes=[{"id": "menu", "titulo": TEXTO_BOTAO_MENU}],
@@ -798,6 +827,7 @@ async def _reagendar_slot_escolhido(db, empresa: Empresa, numero: str, texto: st
     agendamento = db.query(Agendamento).filter_by(id=agendamento_id, empresa_id=empresa.id).first()
     if not agendamento:
         await enviar_botoes(
+            instance=empresa.evolution_instance_name,
             numero=_numero_limpo(numero),
             texto="Não encontrei o agendamento atual para reagendar.",
             botoes=[{"id": "menu", "titulo": TEXTO_BOTAO_MENU}],
@@ -807,6 +837,7 @@ async def _reagendar_slot_escolhido(db, empresa: Empresa, numero: str, texto: st
     inicio_em = _id_slot_para_datetime(id_interacao) or parsear_data_hora_texto(texto)
     if inicio_em is None:
         await enviar_botoes(
+            instance=empresa.evolution_instance_name,
             numero=_numero_limpo(numero),
             texto="Não consegui entender o novo horário. Selecione um horário na lista ou digite no formato DD/MM/AAAA HH:MM.",
             botoes=[{"id": "menu", "titulo": TEXTO_BOTAO_MENU}],
@@ -824,6 +855,7 @@ async def _reagendar_slot_escolhido(db, empresa: Empresa, numero: str, texto: st
                 ttl_segundos=_ttl_contexto(empresa),
             )
             await enviar_lista(
+                instance=empresa.evolution_instance_name,
                 numero=_numero_limpo(numero),
                 texto=validacao.mensagem,
                 titulo_botao="Ver alternativas",
@@ -832,6 +864,7 @@ async def _reagendar_slot_escolhido(db, empresa: Empresa, numero: str, texto: st
             )
         else:
             await enviar_botoes(
+                instance=empresa.evolution_instance_name,
                 numero=_numero_limpo(numero),
                 texto=validacao.mensagem,
                 botoes=[{"id": "menu", "titulo": TEXTO_BOTAO_MENU}],
@@ -847,6 +880,7 @@ async def _reagendar_slot_escolhido(db, empresa: Empresa, numero: str, texto: st
     )
 
     await enviar_botoes(
+        instance=empresa.evolution_instance_name,
         numero=_numero_limpo(numero),
         texto=(
             f"Agendamento reagendado com sucesso para *{formatar_data_hora(novo_agendamento.data_hora)}* ✅\n\n"
@@ -878,6 +912,7 @@ async def _tentar_interpretar_via_ia(db, empresa: Empresa, numero: str, texto: s
     entrada_conhecimento = buscar_resposta(db, empresa.id, texto)
     if entrada_conhecimento:
         await enviar_botoes(
+            instance=empresa.evolution_instance_name,
             numero=_numero_limpo(numero),
             texto=entrada_conhecimento.resposta,
             botoes=[{"id": "menu", "titulo": TEXTO_BOTAO_MENU}],
@@ -942,7 +977,7 @@ async def processar_mensagem(db, empresa: Empresa, numero: str, texto: str, id_i
             await _manter_agendamento(db, empresa, numero, contexto)
         else:
             texto_fallback, botoes_fallback = _resposta_fallback(passo)
-            await enviar_botoes(numero=_numero_limpo(numero), texto=texto_fallback, botoes=botoes_fallback)
+            await enviar_botoes(instance=empresa.evolution_instance_name, numero=_numero_limpo(numero), texto=texto_fallback, botoes=botoes_fallback)
         return
 
     if id_interacao == "agendamento:cancelar" or _texto_corresponde(texto, PALAVRAS_CANCELAMENTO):
@@ -990,6 +1025,7 @@ async def processar_mensagem(db, empresa: Empresa, numero: str, texto: str, id_i
 
     texto_fallback, botoes_fallback = _resposta_fallback(passo)
     await enviar_botoes(
+        instance=empresa.evolution_instance_name,
         numero=_numero_limpo(numero),
         texto=texto_fallback,
         botoes=botoes_fallback,

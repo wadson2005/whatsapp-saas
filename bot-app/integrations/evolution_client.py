@@ -10,12 +10,24 @@ logger = logging.getLogger(__name__)
 TIMEOUT_SEGUNDOS = 15.0
 
 
+MAX_LINHAS_LISTA = 10  # limite de linhas por lista, imposto pelo próprio WhatsApp
+
+
 class EvolutionAPIError(Exception):
     """Levantada quando a Evolution API recusa a chamada (HTTP >= 400)."""
 
 
 class EvolutionAPIConexaoError(EvolutionAPIError):
     """Levantada quando não foi possível alcançar a Evolution API (rede, timeout, DNS)."""
+
+
+class InstanciaNaoConfiguradaError(Exception):
+    """Levantada quando a empresa não tem uma instância Evolution válida para enviar mensagens.
+
+    Nunca deve ser contornada com um número/instância global — cada empresa só
+    pode responder pelo próprio número, conectado via QR code. Sem instância,
+    a falha é explícita (exceção + log), não um envio silencioso por outro canal.
+    """
 
 
 def _headers() -> dict[str, str]:
@@ -114,3 +126,87 @@ async def excluir_instancia(nome_instancia: str) -> None:
         await _requisitar("DELETE", f"/instance/delete/{nome_instancia}")
     except EvolutionAPIError as exc:
         logger.warning("Falha ao excluir instância '%s' na Evolution API: %s", nome_instancia, exc)
+
+
+def _validar_instancia(instance: str | None) -> str:
+    """Garante que existe uma instância explícita antes de qualquer envio.
+
+    Ponto único onde essa checagem acontece — nenhuma função de envio deste
+    módulo tem valor padrão para `instance`, então chamar sem passar a
+    instância da própria empresa já é um erro de programação (`TypeError`)
+    antes mesmo de chegar aqui.
+    """
+    if not instance:
+        logger.error("Tentativa de enviar mensagem sem instância Evolution associada à empresa — envio recusado.")
+        raise InstanciaNaoConfiguradaError(
+            "Empresa sem instância Evolution configurada — não há número dela para enviar a resposta."
+        )
+    return instance
+
+
+async def enviar_botoes(instance: str, numero: str, texto: str, botoes: list[dict], rodape: str | None = None) -> dict:
+    """Envia até 3 botões de resposta rápida pela instância (número) da própria empresa.
+
+    `instance` é sempre obrigatório e explícito — nunca há fallback para outra
+    instância/número. botoes: lista de dicts no formato {"id": "...", "titulo": "..."}.
+    """
+    _validar_instancia(instance)
+    payload = {
+        "number": numero,
+        "title": " ",  # WhatsApp exige um título; o conteúdo de verdade vai em "description"
+        "description": texto,
+        "footer": rodape or "",
+        "buttons": [
+            {"type": "reply", "displayText": b["titulo"], "id": b["id"]}
+            for b in botoes[:3]
+        ],
+    }
+    return await _requisitar("POST", f"/message/sendButtons/{instance}", json=payload)
+
+
+async def enviar_lista(
+    instance: str,
+    numero: str,
+    texto: str,
+    titulo_botao: str,
+    secoes: list[dict],
+    rodape: str | None = None,
+) -> dict:
+    """Envia uma lista de opções pela instância (número) da própria empresa.
+
+    `instance` é sempre obrigatório e explícito — nunca há fallback para outra
+    instância/número. secoes: [{"titulo": "Serviços", "linhas": [{"id": "...", "titulo": "...", "descricao": "..."}]}].
+    """
+    _validar_instancia(instance)
+    secoes_limitadas = []
+    linhas_restantes = MAX_LINHAS_LISTA
+
+    for secao in secoes:
+        if linhas_restantes <= 0:
+            break
+
+        linhas = secao.get("linhas", [])[:linhas_restantes]
+        if not linhas:
+            continue
+
+        secoes_limitadas.append({"titulo": secao["titulo"], "linhas": linhas})
+        linhas_restantes -= len(linhas)
+
+    payload = {
+        "number": numero,
+        "title": " ",  # WhatsApp exige um título; o conteúdo de verdade vai em "description"
+        "description": texto,
+        "buttonText": titulo_botao,
+        "footerText": rodape or "",
+        "sections": [
+            {
+                "title": s["titulo"],
+                "rows": [
+                    {"title": l["titulo"], "description": l.get("descricao", ""), "rowId": l["id"]}
+                    for l in s["linhas"]
+                ],
+            }
+            for s in secoes_limitadas
+        ],
+    }
+    return await _requisitar("POST", f"/message/sendList/{instance}", json=payload)

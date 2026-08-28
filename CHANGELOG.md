@@ -4,6 +4,13 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ## [Unreleased]
 
+### Corrigido (envio de mensagens migrado de Meta Graph API para Evolution API, por instância)
+
+- **Bug crítico de isolamento multiempresa**: todo envio de resposta de conversa (botões, listas) saía pela Meta Graph API, usando credenciais globais (`ConfiguracaoSistema.meta_token`/`meta_phone_number_id`) — um único número para todas as empresas, sem relação com o número que cada empresa conectou via Evolution API. `conversa.py` agora importa `enviar_botoes`/`enviar_lista` de `integrations/evolution_client.py`, e as ~37 chamadas passam `instance=empresa.evolution_instance_name` explicitamente, sem valor padrão — chamar sem instância é erro de programação imediato, não um fallback silencioso.
+- `integrations/evolution_client.py` ganhou `enviar_botoes`/`enviar_lista` (payloads confirmados direto no código-fonte da versão em produção, v2.3.6 — a documentação pública da Evolution não cobre o formato de resposta de botão/lista) e `InstanciaNaoConfiguradaError`, levantada e logada quando a empresa não tem instância válida — nunca usa outro canal como fallback.
+- `main.py::extrair_conteudo` reescrito para o formato real de resposta de botão/lista da Evolution (Baileys) — o parser anterior só reconhecia o formato do Meta Graph API, que nunca chega de verdade por esse webhook (só a Evolution chama `/webhook`).
+- Meta permanece integrada (`integrations/meta_client.py`, credenciais em `/admin/configuracoes`) mas desacoplada do fluxo de conversas — decisão de produto: Evolution API é o único provider suportado nesta versão (ver próxima seção).
+
 ### Adicionado (palavra de ativação por empresa e mensagens pré-preenchidas)
 
 - `Empresa.palavra_ativacao` (novo campo, default `"oibot"`) — a palavra que abre a conversa direto na lista de serviços agora é por empresa, editável em `/admin/configurar-bot/atendimento`. Antes era uma configuração global (`ConfiguracaoSistema.bot_activation_words_raw`, superadmin-only), então toda empresa reagia à mesma palavra — removida junto com `Settings.bot_activation_words_raw`/`.env`'s `BOT_ACTIVATION_WORDS` e o painel "Ativação do bot" em `/admin/configuracoes`.
