@@ -1113,7 +1113,6 @@ async def configurar_bot_lembretes_page(request: Request, db: Session = Depends(
             request,
             title="Lembretes automáticos",
             empresa=empresa,
-            meta_configurado=bool(config.meta_token and config.meta_phone_number_id and config.meta_template_lembrete_nome),
             email_configurado=email_configurado(config),
         ),
     )
@@ -1127,7 +1126,6 @@ async def configurar_bot_lembretes_submit(request: Request, db: Session = Depend
         return RedirectResponse(url="/admin/configurar-bot", status_code=303)
 
     form = await request.form()
-    empresa.lembrete_canal_whatsapp = parse_bool(form.get("lembrete_canal_whatsapp"))
     empresa.lembrete_canal_email = parse_bool(form.get("lembrete_canal_email"))
     db.commit()
 
@@ -1805,8 +1803,6 @@ async def configuracoes_submit(request: Request, db: Session = Depends(get_db), 
         "meta_phone_number_id": (form.get("meta_phone_number_id") or "").strip(),
         "meta_business_id": parse_optional_str(form.get("meta_business_id")),
         "bot_activation_words_raw": (form.get("bot_activation_words_raw") or "oibot").strip(),
-        "meta_template_lembrete_nome": (form.get("meta_template_lembrete_nome") or "lembrete_agendamento").strip(),
-        "meta_template_lembrete_idioma": (form.get("meta_template_lembrete_idioma") or "pt_BR").strip(),
         "lembrete_antecedencia_horas": parse_optional_int(form.get("lembrete_antecedencia_horas")) or 24,
         "lembrete_intervalo_minutos": parse_optional_int(form.get("lembrete_intervalo_minutos")) or 15,
         "email_from_endereco": parse_optional_str(form.get("email_from_endereco")),

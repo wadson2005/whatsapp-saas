@@ -61,13 +61,9 @@
           <td>{{ agendamento.data_hora.strftime('%d/%m/%Y %H:%M') }}</td>
           <td><span class="badge text-bg-light border">{{ agendamento.status }}</span></td>
           <td>
-            {% if agendamento.lembrete_enviado_em %}
-            <span class="badge text-bg-success">WhatsApp</span>
-            {% endif %}
             {% if agendamento.lembrete_email_enviado_em %}
             <span class="badge text-bg-success">E-mail</span>
-            {% endif %}
-            {% if not agendamento.lembrete_enviado_em and not agendamento.lembrete_email_enviado_em %}
+            {% else %}
             <span class="badge text-bg-light border">Pendente</span>
             {% endif %}
           </td>

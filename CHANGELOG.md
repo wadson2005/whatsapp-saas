@@ -13,14 +13,14 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 - **Achado tratado fora do código, direto na infraestrutura**: o Caddy de produção tinha um segundo domínio (hostname automático da VPS) roteando direto para a porta da Evolution API (8080), expondo a API de gerenciamento de instâncias WhatsApp de todas as empresas publicamente, sem passar pelo FastAPI nem pelo `WEBHOOK_SECRET`. Bloco removido do Caddyfile do servidor.
 - **Identificado, não corrigido nesta rodada**: `WEBHOOK_SECRET` é um segredo único compartilhado por todas as instâncias da Evolution API — quem o obtém pode forjar mensagem/cancelamento em nome de qualquer empresa (o nome da instância é previsível, é o próprio slug). Requer token por empresa; decisão de rollout pendente porque instâncias já existentes têm a URL antiga embutida na Evolution API.
 
-### Adicionado (lembrete de agendamento por WhatsApp e/ou e-mail)
+### Adicionado (lembrete de agendamento por e-mail)
 
-- Cada empresa agora escolhe em `/admin/configurar-bot/lembretes` se quer lembrete automático por WhatsApp, e-mail ou os dois (`Empresa.lembrete_canal_whatsapp`/`lembrete_canal_email`, WhatsApp ligado por padrão para não mudar o comportamento de empresas já existentes). Cada canal grava seu próprio carimbo de sucesso (`Agendamento.lembrete_enviado_em` para WhatsApp, `lembrete_email_enviado_em`, novo, para e-mail) — uma falha num canal nunca bloqueia nem faz reenviar o outro no próximo ciclo do loop de lembretes, o que evitaria, por exemplo, reenviar o WhatsApp repetidamente só porque o e-mail está falhando.
+- Cada empresa agora escolhe em `/admin/configurar-bot/lembretes` se quer lembrete automático por e-mail (`Empresa.lembrete_canal_email`). Agendamento grava `Agendamento.lembrete_email_enviado_em` (novo) ao enviar com sucesso; se o cliente não tiver e-mail cadastrado, o ciclo fecha sem tentar de novo a cada rodada do loop de lembretes.
 - E-mail via API do [Resend](https://resend.com) (`integrations/email_client.py`, reescrito — antes era SMTP genérico via `smtplib`, usado só na recuperação de senha e nunca ligado a lembretes; migrado para não manter dois mecanismos de envio de e-mail no projeto). Credenciais (`RESEND_API_KEY`/`EMAIL_FROM_ENDERECO`/`EMAIL_FROM_NOME`) são globais, mesmo padrão das credenciais da Meta — nenhuma empresa precisa configurar servidor de e-mail próprio.
 - `ClienteFinal.email` (novo campo, opcional) — editável pelo painel em `/admin/clientes/{id}` e no cadastro manual de cliente; a conversa por WhatsApp não coleta e-mail automaticamente, pra não adicionar fricção ao fluxo de agendamento.
-- Rede de segurança: se uma empresa ativar só o canal e-mail e um cliente específico não tiver e-mail cadastrado, o lembrete desse cliente cai automaticamente para WhatsApp, em vez de ficar sem nenhum aviso.
-- Último erro de envio por WhatsApp (ex.: template não aprovado) fica visível para o superadmin em `/admin/configuracoes`, em vez de só no log.
 - `.env.example`: variáveis `SMTP_*` substituídas por `RESEND_API_KEY`/`EMAIL_FROM_ENDERECO`/`EMAIL_FROM_NOME`.
+
+**Nota:** a primeira versão desta feature também incluía lembrete por WhatsApp via template pré-aprovado da Meta, com fallback automático pro WhatsApp quando o cliente não tinha e-mail. Removido antes de sair do `[Unreleased]` — não vale amarrar a funcionalidade a uma aprovação de template pela Meta no estágio atual do produto. Pode voltar como canal adicional mais adiante; código no histórico do git.
 
 ### Alterado (copywriting da landing page)
 

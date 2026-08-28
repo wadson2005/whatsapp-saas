@@ -17,8 +17,6 @@ _CAMPOS_EDITAVEIS = (
     "meta_phone_number_id",
     "meta_business_id",
     "bot_activation_words_raw",
-    "meta_template_lembrete_nome",
-    "meta_template_lembrete_idioma",
     "lembrete_antecedencia_horas",
     "lembrete_intervalo_minutos",
     "resend_api_key",
@@ -39,8 +37,6 @@ def _valores_padrao_do_env() -> dict:
         "meta_phone_number_id": settings.meta_phone_number_id,
         "meta_business_id": settings.meta_business_id,
         "bot_activation_words_raw": settings.bot_activation_words_raw,
-        "meta_template_lembrete_nome": settings.meta_template_lembrete_nome,
-        "meta_template_lembrete_idioma": settings.meta_template_lembrete_idioma,
         "lembrete_antecedencia_horas": settings.lembrete_antecedencia_horas,
         "lembrete_intervalo_minutos": settings.lembrete_intervalo_minutos,
         "resend_api_key": settings.resend_api_key,
@@ -104,27 +100,6 @@ def obter_configuracao_isolada() -> SimpleNamespace:
         return _snapshot_do_env()
     finally:
         db.close()
-
-
-def registrar_erro_lembrete_whatsapp(db, mensagem: str) -> None:
-    """Grava o último erro do envio de lembrete por WhatsApp, para exibir no painel.
-
-    Não passa por `atualizar_configuracao` porque não é um valor editável pelo
-    usuário — é um status escrito automaticamente por `services.lembretes`.
-    """
-    config = obter_configuracao(db)
-    config.ultimo_erro_lembrete_whatsapp = mensagem
-    config.ultimo_erro_lembrete_whatsapp_em = datetime.utcnow()
-    db.commit()
-
-
-def limpar_erro_lembrete_whatsapp(db) -> None:
-    config = obter_configuracao(db)
-    if config.ultimo_erro_lembrete_whatsapp is None:
-        return
-    config.ultimo_erro_lembrete_whatsapp = None
-    config.ultimo_erro_lembrete_whatsapp_em = None
-    db.commit()
 
 
 def parse_activation_words(raw: str | None) -> tuple[str, ...]:

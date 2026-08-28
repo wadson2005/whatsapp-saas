@@ -74,19 +74,9 @@ Ver a lista completa em [bot-app/.env.example](../bot-app/.env.example) e na se�
 
 ## Lembretes de agendamento
 
-Cada empresa escolhe em `/admin/configurar-bot/lembretes` se quer lembrete por WhatsApp, e-mail ou os dois — ver [docs/architecture.md](architecture.md#lembretes-de-agendamento-whatsapp-eou-e-mail). Para e-mail, basta configurar `RESEND_API_KEY`/`EMAIL_FROM_ENDERECO` (ver [Resend](https://resend.com)) — não exige nenhum cadastro prévio de template. Para WhatsApp, veja abaixo.
+Cada empresa ativa em `/admin/configurar-bot/lembretes` se quer lembrete por e-mail — ver [docs/architecture.md](architecture.md#lembretes-de-agendamento-e-mail). Basta configurar `RESEND_API_KEY`/`EMAIL_FROM_ENDERECO` (ver [Resend](https://resend.com)) — não exige nenhum cadastro prévio de template.
 
-### Template de mensagem para lembrete por WhatsApp
-
-A Graph API do WhatsApp só permite mensagem livre dentro da janela de 24h de atendimento ao cliente. Como o lembrete é enviado proativamente, ele precisa de um **template aprovado no Meta Business Manager** — sem esse cadastro, os lembretes por WhatsApp falham silenciosamente (erro registrado em log e exibido para o superadmin em `/admin/configuracoes`, sem quebrar a aplicação).
-
-Cadastre no Meta Business Manager:
-
-- Nome: `lembrete_agendamento` (ou o valor configurado em `META_TEMPLATE_LEMBRETE_NOME`)
-- Categoria: `UTILITY`
-- Idioma: Portuguese (BR) — `pt_BR`
-- Corpo: `Olá {{1}}! Passando para lembrar do seu horário de {{2}} marcado para {{3}} na {{4}}. Para cancelar, é só responder esta mensagem.`
-- Exemplos para submissão: `{{1}}=Maria`, `{{2}}=Corte de cabelo`, `{{3}}=15/08/2026 às 14:00`, `{{4}}=Clínica Sorriso Feliz`
+> O canal WhatsApp (que exigia um template aprovado no Meta Business Manager) foi removido temporariamente — ver `docs/architecture.md`.
 
 ## Comandos úteis
 
@@ -116,7 +106,7 @@ cd bot-app && python -m scripts.retomar
 - [ ] `ADMIN_PASSWORD`, `SESSION_SECRET_KEY` e `WEBHOOK_SECRET` gerados com valores fortes (não os exemplos do `.env.example`).
 - [ ] `PUBLIC_BASE_URL` configurado com o domínio público real e o Caddy já respondendo nele — necessário antes de cadastrar a primeira empresa (`/admin/empresas/cadastrar` ou `/admin/empresas/nova`).
 - [ ] `DATABASE_URL` apontando para PostgreSQL (não SQLite) — o schema é compatível com os dois, mas SQLite não é recomendado para múltiplos workers/produção.
-- [ ] Template de lembrete aprovado no Meta Business Manager (se for usar o canal WhatsApp) e/ou `RESEND_API_KEY`/`EMAIL_FROM_ENDERECO` configurados (se for usar o canal e-mail).
+- [ ] `RESEND_API_KEY`/`EMAIL_FROM_ENDERECO` configurados, se for usar lembrete por e-mail.
 - [ ] Postgres e Redis expostos apenas em `127.0.0.1` (não publicamente).
 - [ ] `docker compose up --build` executado após qualquer mudança de código ou de estrutura de pastas — a imagem precisa ser reconstruída.
 - [ ] `/readyz` retornando `200` antes de apontar o domínio/tráfego real para o serviço.

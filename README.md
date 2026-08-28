@@ -33,7 +33,7 @@ Documentação mais profunda:
 - **Configuração guiada do bot** (`/admin/configurar-bot`) — depois de conectar o WhatsApp, um hub central mostra o que falta (mensagens do bot, serviços, horários) com progresso calculado a partir de dados reais, sem exigir ordem fixa; o mesmo status aparece como um card no `/admin/dashboard` normal enquanto a empresa não estiver ativa. **Conectar o WhatsApp não ativa o bot sozinho** — a empresa nasce com `ativo=False` e só passa a responder mensagens depois que o próprio dono aperta "Ativar bot" (com pré-requisitos reais: WhatsApp conectado + pelo menos um serviço ativo). `ativado_em` distingue "nunca configurado" de "pausado depois de já ter estado no ar" — inclusive na cópia da tela ("Ativar bot" vs. "Reativar bot").
 - **Motor de agendamento** — valida empresa/serviço ativos, horário de funcionamento, almoço, dias indisponíveis e conflito com outros agendamentos; sugere horários alternativos automaticamente.
 - **Máquina de estados conversacional** — fluxo guiado por botões/listas interativas, com atalhos globais (`menu`, `cancelar`, `reagendar`) e fallback contextual (nunca deixa o cliente sem resposta).
-- **Lembretes automáticos** — ciclo assíncrono embutido no processo, envia lembrete via template aprovado da Meta antes do horário marcado, com controle de envio único por agendamento.
+- **Lembretes automáticos** — ciclo assíncrono embutido no processo, envia lembrete por e-mail (Resend) antes do horário marcado, com controle de envio único por agendamento. (O canal WhatsApp foi removido temporariamente por depender de aprovação de template no Meta Business Manager — ver roadmap.)
 - **Base de conhecimento por empresa** — perguntas e respostas cadastradas via painel, consultadas antes de qualquer chamada de IA (garante que uma resposta cadastrada nunca é substituída por algo inventado).
 - **Camada de IA opcional (NLU)** — interpretação de linguagem natural como último recurso da máquina de estados, com provider plugável (OpenAI hoje, interface pronta para outros), cache Redis, timeout e fallback seguro. Desligada por padrão — zero impacto se não configurada.
 - **Atendimento humano** — registra e organiza solicitações de handoff, com fila e mudança de status no painel.
@@ -213,8 +213,9 @@ O bot identifica a empresa pela `instance`, abre (ou recupera) o estado da conve
 - [x] Recuperação de senha self-service (`/admin/esqueci-senha`) via e-mail (Resend).
 - [x] Landing page pública e conta separada de empresa — onboarding vira só criação de conta; empresa é cadastrada depois, self-service, já logado.
 - [x] Ativação explícita do bot — conectar o WhatsApp não liga o atendimento sozinho; hub de configuração guiada (`/admin/configurar-bot`) com pré-requisitos reais para ativar.
-- [x] Lembrete de agendamento por WhatsApp e/ou e-mail — cada empresa escolhe o canal em `/admin/configurar-bot/lembretes`; falha em um canal nunca bloqueia nem repete o outro.
+- [x] Lembrete de agendamento por e-mail — cada empresa ativa o canal em `/admin/configurar-bot/lembretes`.
 - [x] Rate limiting em `/admin/login`, `/admin/esqueci-senha` e `/onboarding`; `/docs` desligado em produção; cookie de sessão só por HTTPS.
+- [ ] Lembrete de agendamento por WhatsApp — removido temporariamente para não depender de aprovação de template no Meta Business Manager; volta como canal adicional ao de e-mail quando isso for resolvido.
 - [ ] Token de webhook por empresa (hoje é um segredo único compartilhado por todas as instâncias da Evolution API).
 - [ ] Cobrança recorrente (assinatura por empresa).
 - [ ] Observabilidade e auditoria mais completas (métricas operacionais, alertas).

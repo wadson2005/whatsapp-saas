@@ -2,7 +2,7 @@ import asyncio
 import importlib
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -36,6 +36,7 @@ def _seed_empresa(main, models, slug: str, nome: str):
             horario_fechamento="18:00",
             intervalo_entre_atendimentos_minutos=15,
             ativo=True,
+            lembrete_canal_email=True,
         )
         db.add(empresa)
         db.commit()
@@ -224,7 +225,7 @@ def test_meta_client_usa_configuracao_atualizada_sem_restart(monkeypatch, tmp_pa
     assert urls_chamadas[1][1] == "Bearer token-novo"
 
 
-# --- lembretes.py: respeita antecedência/template vindos da configuração -----------
+# --- lembretes.py: respeita antecedência vinda da configuração ---------------------
 
 
 def test_lembretes_respeitam_antecedencia_configurada(monkeypatch, tmp_path):
@@ -247,32 +248,6 @@ def test_lembretes_respeitam_antecedencia_configurada(monkeypatch, tmp_path):
         assert len(pendentes_longo) == 1
     finally:
         db.close()
-
-
-def test_lembretes_usam_template_configurado(monkeypatch, tmp_path):
-    main, models, configuracoes, meta_client, lembretes, _ = carregar_app(monkeypatch, tmp_path)
-    empresa = _seed_empresa(main, models, "clinica-a", "Clínica A")
-    servico = _seed_servico(main, models, empresa, "Corte")
-    cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana")
-    agendamento = _seed_agendamento(main, models, empresa, cliente, servico, datetime.utcnow() + timedelta(hours=2))
-
-    db = main.SessionLocal()
-    try:
-        configuracoes.atualizar_configuracao(db, meta_template_lembrete_nome="template-customizado", meta_template_lembrete_idioma="en_US")
-    finally:
-        db.close()
-
-    lembretes.enviar_template = AsyncMock(return_value={"messages": [{"id": "wamid.1"}]})
-
-    db = main.SessionLocal()
-    try:
-        agendamento_db = db.query(models.Agendamento).filter_by(id=agendamento.id).first()
-        asyncio.run(lembretes.enviar_lembrete(db, agendamento_db))
-    finally:
-        db.close()
-
-    assert lembretes.enviar_template.await_args.kwargs["nome_template"] == "template-customizado"
-    assert lembretes.enviar_template.await_args.kwargs["idioma"] == "en_US"
 
 
 # --- ai/service.py: habilitar/trocar modelo via configuração -----------------------

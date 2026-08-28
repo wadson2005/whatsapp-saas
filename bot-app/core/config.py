@@ -39,12 +39,6 @@ class Settings(BaseSettings):
     admin_username: str = Field(default="admin", validation_alias="ADMIN_USERNAME")
     admin_password: str = Field(validation_alias="ADMIN_PASSWORD")
     session_secret_key: str = Field(validation_alias="SESSION_SECRET_KEY")
-    meta_template_lembrete_nome: str = Field(
-        default="lembrete_agendamento", validation_alias="META_TEMPLATE_LEMBRETE_NOME"
-    )
-    meta_template_lembrete_idioma: str = Field(
-        default="pt_BR", validation_alias="META_TEMPLATE_LEMBRETE_IDIOMA"
-    )
     lembrete_antecedencia_horas: int = Field(default=24, validation_alias="LEMBRETE_ANTECEDENCIA_HORAS")
     lembrete_intervalo_minutos: int = Field(default=15, validation_alias="LEMBRETE_INTERVALO_MINUTOS")
     ai_enabled: bool = Field(default=False, validation_alias="AI_ENABLED")

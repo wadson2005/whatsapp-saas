@@ -31,8 +31,7 @@ def _seed_empresa(
     nome: str,
     telefone: str,
     instancia: str,
-    lembrete_canal_whatsapp: bool = True,
-    lembrete_canal_email: bool = False,
+    lembrete_canal_email: bool = True,
 ):
     db = main.SessionLocal()
     try:
@@ -46,7 +45,6 @@ def _seed_empresa(
             horario_fechamento="18:00",
             intervalo_entre_atendimentos_minutos=15,
             ativo=True,
-            lembrete_canal_whatsapp=lembrete_canal_whatsapp,
             lembrete_canal_email=lembrete_canal_email,
         )
         db.add(empresa)
@@ -89,7 +87,7 @@ def _seed_agendamento(
     servico,
     data_hora: datetime,
     status: str = "agendado",
-    lembrete_enviado_em: datetime | None = None,
+    lembrete_email_enviado_em: datetime | None = None,
 ):
     db = main.SessionLocal()
     try:
@@ -100,7 +98,7 @@ def _seed_agendamento(
             data_hora=data_hora,
             duracao_minutos=servico.duracao_minutos,
             status=status,
-            lembrete_enviado_em=lembrete_enviado_em,
+            lembrete_email_enviado_em=lembrete_email_enviado_em,
         )
         db.add(agendamento)
         db.commit()
@@ -112,11 +110,11 @@ def _seed_agendamento(
 
 def test_agendamento_na_janela_recebe_lembrete_e_marca_enviado(monkeypatch, tmp_path):
     main, models, lembretes, _ = carregar_app(monkeypatch, tmp_path)
-    lembretes.enviar_template = AsyncMock(return_value={"messages": [{"id": "wamid.1"}]})
+    lembretes.enviar_email = AsyncMock(return_value=None)
 
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
     servico = _seed_servico(main, models, empresa, "Corte")
-    cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza")
+    cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email="ana@exemplo.com")
     agendamento = _seed_agendamento(
         main, models, empresa, cliente, servico, datetime.utcnow() + timedelta(hours=2)
     )
@@ -128,23 +126,23 @@ def test_agendamento_na_janela_recebe_lembrete_e_marca_enviado(monkeypatch, tmp_
         db.close()
 
     assert enviados == 1
-    assert lembretes.enviar_template.await_count == 1
+    lembretes.enviar_email.assert_awaited_once()
 
     db = main.SessionLocal()
     try:
         atualizado = db.query(models.Agendamento).filter_by(id=agendamento.id).first()
-        assert atualizado.lembrete_enviado_em is not None
+        assert atualizado.lembrete_email_enviado_em is not None
     finally:
         db.close()
 
 
 def test_agendamento_fora_da_janela_nao_recebe_lembrete(monkeypatch, tmp_path):
     main, models, lembretes, _ = carregar_app(monkeypatch, tmp_path)
-    lembretes.enviar_template = AsyncMock(return_value={"messages": [{"id": "wamid.1"}]})
+    lembretes.enviar_email = AsyncMock(return_value=None)
 
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
     servico = _seed_servico(main, models, empresa, "Corte")
-    cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza")
+    cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email="ana@exemplo.com")
     _seed_agendamento(main, models, empresa, cliente, servico, datetime.utcnow() + timedelta(hours=48))
 
     db = main.SessionLocal()
@@ -154,16 +152,16 @@ def test_agendamento_fora_da_janela_nao_recebe_lembrete(monkeypatch, tmp_path):
         db.close()
 
     assert enviados == 0
-    lembretes.enviar_template.assert_not_awaited()
+    lembretes.enviar_email.assert_not_awaited()
 
 
 def test_agendamento_ja_com_lembrete_nao_reenvia(monkeypatch, tmp_path):
     main, models, lembretes, _ = carregar_app(monkeypatch, tmp_path)
-    lembretes.enviar_template = AsyncMock(return_value={"messages": [{"id": "wamid.1"}]})
+    lembretes.enviar_email = AsyncMock(return_value=None)
 
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
     servico = _seed_servico(main, models, empresa, "Corte")
-    cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza")
+    cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email="ana@exemplo.com")
     _seed_agendamento(
         main,
         models,
@@ -171,7 +169,7 @@ def test_agendamento_ja_com_lembrete_nao_reenvia(monkeypatch, tmp_path):
         cliente,
         servico,
         datetime.utcnow() + timedelta(hours=2),
-        lembrete_enviado_em=datetime.utcnow() - timedelta(hours=1),
+        lembrete_email_enviado_em=datetime.utcnow() - timedelta(hours=1),
     )
 
     db = main.SessionLocal()
@@ -181,16 +179,16 @@ def test_agendamento_ja_com_lembrete_nao_reenvia(monkeypatch, tmp_path):
         db.close()
 
     assert enviados == 0
-    lembretes.enviar_template.assert_not_awaited()
+    lembretes.enviar_email.assert_not_awaited()
 
 
 def test_agendamento_cancelado_nao_recebe_lembrete(monkeypatch, tmp_path):
     main, models, lembretes, _ = carregar_app(monkeypatch, tmp_path)
-    lembretes.enviar_template = AsyncMock(return_value={"messages": [{"id": "wamid.1"}]})
+    lembretes.enviar_email = AsyncMock(return_value=None)
 
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
     servico = _seed_servico(main, models, empresa, "Corte")
-    cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza")
+    cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email="ana@exemplo.com")
     _seed_agendamento(
         main, models, empresa, cliente, servico, datetime.utcnow() + timedelta(hours=2), status="cancelado"
     )
@@ -202,16 +200,16 @@ def test_agendamento_cancelado_nao_recebe_lembrete(monkeypatch, tmp_path):
         db.close()
 
     assert enviados == 0
-    lembretes.enviar_template.assert_not_awaited()
+    lembretes.enviar_email.assert_not_awaited()
 
 
 def test_agendamento_passado_nao_recebe_lembrete(monkeypatch, tmp_path):
     main, models, lembretes, _ = carregar_app(monkeypatch, tmp_path)
-    lembretes.enviar_template = AsyncMock(return_value={"messages": [{"id": "wamid.1"}]})
+    lembretes.enviar_email = AsyncMock(return_value=None)
 
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
     servico = _seed_servico(main, models, empresa, "Corte")
-    cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza")
+    cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email="ana@exemplo.com")
     _seed_agendamento(main, models, empresa, cliente, servico, datetime.utcnow() - timedelta(hours=1))
 
     db = main.SessionLocal()
@@ -221,115 +219,19 @@ def test_agendamento_passado_nao_recebe_lembrete(monkeypatch, tmp_path):
         db.close()
 
     assert enviados == 0
-    lembretes.enviar_template.assert_not_awaited()
+    lembretes.enviar_email.assert_not_awaited()
 
 
-def test_falha_no_envio_nao_marca_como_enviado_e_nao_interrompe_lote(monkeypatch, tmp_path):
+def test_canal_desativado_nao_recebe_lembrete(monkeypatch, tmp_path):
     main, models, lembretes, _ = carregar_app(monkeypatch, tmp_path)
-
-    empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
-    servico = _seed_servico(main, models, empresa, "Corte")
-    cliente_falha = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza")
-    cliente_ok = _seed_cliente(main, models, empresa, "5511900000002", "Bruno Lima")
-    agendamento_falha = _seed_agendamento(
-        main, models, empresa, cliente_falha, servico, datetime.utcnow() + timedelta(hours=1)
-    )
-    agendamento_ok = _seed_agendamento(
-        main, models, empresa, cliente_ok, servico, datetime.utcnow() + timedelta(hours=2)
-    )
-
-    respostas = [{"error": {"message": "template não aprovado"}}, {"messages": [{"id": "wamid.ok"}]}]
-    lembretes.enviar_template = AsyncMock(side_effect=respostas)
-
-    db = main.SessionLocal()
-    try:
-        enviados = asyncio.run(lembretes.enviar_lembretes_pendentes(db))
-    finally:
-        db.close()
-
-    assert enviados == 1
-    assert lembretes.enviar_template.await_count == 2
-
-    db = main.SessionLocal()
-    try:
-        falha = db.query(models.Agendamento).filter_by(id=agendamento_falha.id).first()
-        ok = db.query(models.Agendamento).filter_by(id=agendamento_ok.id).first()
-        assert falha.lembrete_enviado_em is None
-        assert ok.lembrete_enviado_em is not None
-    finally:
-        db.close()
-
-
-def test_parametros_do_template_incluem_nome_servico_data_e_empresa(monkeypatch, tmp_path):
-    main, models, lembretes, agenda = carregar_app(monkeypatch, tmp_path)
-    lembretes.enviar_template = AsyncMock(return_value={"messages": [{"id": "wamid.1"}]})
-
-    empresa = _seed_empresa(main, models, "clinica-a", "Clínica Sorriso Feliz", "5511999999991", "instancia-a")
-    servico = _seed_servico(main, models, empresa, "Corte de cabelo")
-    cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza")
-    data_hora = datetime.utcnow() + timedelta(hours=2)
-    _seed_agendamento(main, models, empresa, cliente, servico, data_hora)
-
-    db = main.SessionLocal()
-    try:
-        asyncio.run(lembretes.enviar_lembretes_pendentes(db))
-    finally:
-        db.close()
-
-    _, kwargs = lembretes.enviar_template.await_args
-    assert kwargs["numero"] == "5511900000001"
-    assert kwargs["parametros_corpo"] == [
-        "Ana Souza",
-        "Corte de cabelo",
-        agenda.formatar_data_hora(data_hora),
-        "Clínica Sorriso Feliz",
-    ]
-
-
-def test_reagendamento_reseta_lembrete_enviado_em(monkeypatch, tmp_path):
-    main, models, lembretes, agenda = carregar_app(monkeypatch, tmp_path)
-
-    empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
-    servico = _seed_servico(main, models, empresa, "Corte")
-    cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza")
-    agendamento = _seed_agendamento(
-        main,
-        models,
-        empresa,
-        cliente,
-        servico,
-        datetime.utcnow() + timedelta(hours=2),
-        lembrete_enviado_em=datetime.utcnow() - timedelta(hours=1),
-    )
-
-    db = main.SessionLocal()
-    try:
-        agendamento_db = db.query(models.Agendamento).filter_by(id=agendamento.id).first()
-        empresa_db = db.query(models.Empresa).filter_by(id=empresa.id).first()
-        novo_horario = _proxima_segunda_10h()  # sempre futuro, dentro do horário de funcionamento
-        atualizado, validacao = agenda.reagendar_agendamento(db, empresa_db, agendamento_db, novo_horario)
-        assert validacao.ok
-        assert atualizado.lembrete_enviado_em is None
-        assert atualizado.lembrete_email_enviado_em is None
-    finally:
-        db.close()
-
-
-# --- multi-canal (WhatsApp + e-mail) ------------------------------------------------
-
-
-def test_canal_so_email_com_cliente_com_email_envia_so_por_email(monkeypatch, tmp_path):
-    main, models, lembretes, _ = carregar_app(monkeypatch, tmp_path)
-    lembretes.enviar_template = AsyncMock(return_value={"messages": [{"id": "wamid.1"}]})
     lembretes.enviar_email = AsyncMock(return_value=None)
 
     empresa = _seed_empresa(
-        main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a",
-        lembrete_canal_whatsapp=False, lembrete_canal_email=True,
+        main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a", lembrete_canal_email=False
     )
     servico = _seed_servico(main, models, empresa, "Corte")
     cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email="ana@exemplo.com")
-    agendamento = _seed_agendamento(main, models, empresa, cliente, servico, datetime.utcnow() + timedelta(hours=2))
+    _seed_agendamento(main, models, empresa, cliente, servico, datetime.utcnow() + timedelta(hours=2))
 
     db = main.SessionLocal()
     try:
@@ -337,28 +239,15 @@ def test_canal_so_email_com_cliente_com_email_envia_so_por_email(monkeypatch, tm
     finally:
         db.close()
 
-    assert enviados == 1
-    lembretes.enviar_email.assert_awaited_once()
-    lembretes.enviar_template.assert_not_awaited()
-
-    db = main.SessionLocal()
-    try:
-        atualizado = db.query(models.Agendamento).filter_by(id=agendamento.id).first()
-        assert atualizado.lembrete_email_enviado_em is not None
-        assert atualizado.lembrete_enviado_em is None
-    finally:
-        db.close()
+    assert enviados == 0
+    lembretes.enviar_email.assert_not_awaited()
 
 
-def test_canal_so_email_sem_cliente_com_email_cai_para_whatsapp(monkeypatch, tmp_path):
+def test_cliente_sem_email_fecha_ciclo_sem_repetir_a_cada_rodada(monkeypatch, tmp_path):
     main, models, lembretes, _ = carregar_app(monkeypatch, tmp_path)
-    lembretes.enviar_template = AsyncMock(return_value={"messages": [{"id": "wamid.1"}]})
     lembretes.enviar_email = AsyncMock(return_value=None)
 
-    empresa = _seed_empresa(
-        main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a",
-        lembrete_canal_whatsapp=False, lembrete_canal_email=True,
-    )
+    empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
     servico = _seed_servico(main, models, empresa, "Corte")
     cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email=None)
     agendamento = _seed_agendamento(main, models, empresa, cliente, servico, datetime.utcnow() + timedelta(hours=2))
@@ -369,52 +258,17 @@ def test_canal_so_email_sem_cliente_com_email_cai_para_whatsapp(monkeypatch, tmp
     finally:
         db.close()
 
-    assert enviados == 1
-    lembretes.enviar_template.assert_awaited_once()
+    assert enviados == 0
     lembretes.enviar_email.assert_not_awaited()
 
     db = main.SessionLocal()
     try:
         atualizado = db.query(models.Agendamento).filter_by(id=agendamento.id).first()
-        assert atualizado.lembrete_enviado_em is not None
         assert atualizado.lembrete_email_enviado_em is not None  # canal fechado, mesmo sem tentativa real
     finally:
         db.close()
 
-
-def test_canal_ambos_falha_de_email_nao_impede_nem_repete_whatsapp(monkeypatch, tmp_path):
-    main, models, lembretes, _ = carregar_app(monkeypatch, tmp_path)
-    lembretes.enviar_template = AsyncMock(return_value={"messages": [{"id": "wamid.1"}]})
-    lembretes.enviar_email = AsyncMock(side_effect=lembretes.EmailError("Resend recusou o envio"))
-
-    empresa = _seed_empresa(
-        main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a",
-        lembrete_canal_whatsapp=True, lembrete_canal_email=True,
-    )
-    servico = _seed_servico(main, models, empresa, "Corte")
-    cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email="ana@exemplo.com")
-    agendamento = _seed_agendamento(main, models, empresa, cliente, servico, datetime.utcnow() + timedelta(hours=2))
-
-    db = main.SessionLocal()
-    try:
-        enviados_1 = asyncio.run(lembretes.enviar_lembretes_pendentes(db))
-    finally:
-        db.close()
-
-    assert enviados_1 == 1
-    assert lembretes.enviar_template.await_count == 1
-    assert lembretes.enviar_email.await_count == 1
-
-    db = main.SessionLocal()
-    try:
-        atualizado = db.query(models.Agendamento).filter_by(id=agendamento.id).first()
-        assert atualizado.lembrete_enviado_em is not None
-        assert atualizado.lembrete_email_enviado_em is None
-    finally:
-        db.close()
-
-    # próximo ciclo: e-mail continua pendente e é tentado de novo, mas o WhatsApp
-    # já enviado com sucesso NUNCA é repetido.
+    # próximo ciclo: não reaparece na busca nem tenta enviar de novo
     db = main.SessionLocal()
     try:
         enviados_2 = asyncio.run(lembretes.enviar_lembretes_pendentes(db))
@@ -422,32 +276,24 @@ def test_canal_ambos_falha_de_email_nao_impede_nem_repete_whatsapp(monkeypatch, 
         db.close()
 
     assert enviados_2 == 0
-    assert lembretes.enviar_template.await_count == 1
-    assert lembretes.enviar_email.await_count == 2
+    lembretes.enviar_email.assert_not_awaited()
 
 
-def test_canal_ambos_ja_enviados_nao_reaparece_na_busca(monkeypatch, tmp_path):
+def test_falha_no_envio_nao_marca_como_enviado_e_nao_interrompe_lote(monkeypatch, tmp_path):
     main, models, lembretes, _ = carregar_app(monkeypatch, tmp_path)
-    lembretes.enviar_template = AsyncMock(return_value={"messages": [{"id": "wamid.1"}]})
-    lembretes.enviar_email = AsyncMock(return_value=None)
 
-    empresa = _seed_empresa(
-        main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a",
-        lembrete_canal_whatsapp=True, lembrete_canal_email=True,
-    )
+    empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
     servico = _seed_servico(main, models, empresa, "Corte")
-    cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email="ana@exemplo.com")
-    _seed_agendamento(
-        main, models, empresa, cliente, servico, datetime.utcnow() + timedelta(hours=2),
-        lembrete_enviado_em=datetime.utcnow() - timedelta(minutes=5),
+    cliente_falha = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email="ana@exemplo.com")
+    cliente_ok = _seed_cliente(main, models, empresa, "5511900000002", "Bruno Lima", email="bruno@exemplo.com")
+    agendamento_falha = _seed_agendamento(
+        main, models, empresa, cliente_falha, servico, datetime.utcnow() + timedelta(hours=1)
     )
-    db = main.SessionLocal()
-    try:
-        pendente = db.query(models.Agendamento).order_by(models.Agendamento.id.desc()).first()
-        pendente.lembrete_email_enviado_em = datetime.utcnow() - timedelta(minutes=5)
-        db.commit()
-    finally:
-        db.close()
+    agendamento_ok = _seed_agendamento(
+        main, models, empresa, cliente_ok, servico, datetime.utcnow() + timedelta(hours=2)
+    )
+
+    lembretes.enviar_email = AsyncMock(side_effect=[lembretes.EmailError("Resend recusou o envio"), None])
 
     db = main.SessionLocal()
     try:
@@ -455,6 +301,67 @@ def test_canal_ambos_ja_enviados_nao_reaparece_na_busca(monkeypatch, tmp_path):
     finally:
         db.close()
 
-    assert enviados == 0
-    lembretes.enviar_template.assert_not_awaited()
-    lembretes.enviar_email.assert_not_awaited()
+    assert enviados == 1
+    assert lembretes.enviar_email.await_count == 2
+
+    db = main.SessionLocal()
+    try:
+        falha = db.query(models.Agendamento).filter_by(id=agendamento_falha.id).first()
+        ok = db.query(models.Agendamento).filter_by(id=agendamento_ok.id).first()
+        assert falha.lembrete_email_enviado_em is None
+        assert ok.lembrete_email_enviado_em is not None
+    finally:
+        db.close()
+
+
+def test_email_inclui_nome_servico_data_e_empresa(monkeypatch, tmp_path):
+    main, models, lembretes, agenda = carregar_app(monkeypatch, tmp_path)
+    lembretes.enviar_email = AsyncMock(return_value=None)
+
+    empresa = _seed_empresa(main, models, "clinica-a", "Clínica Sorriso Feliz", "5511999999991", "instancia-a")
+    servico = _seed_servico(main, models, empresa, "Corte de cabelo")
+    cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email="ana@exemplo.com")
+    data_hora = datetime.utcnow() + timedelta(hours=2)
+    _seed_agendamento(main, models, empresa, cliente, servico, data_hora)
+
+    db = main.SessionLocal()
+    try:
+        asyncio.run(lembretes.enviar_lembretes_pendentes(db))
+    finally:
+        db.close()
+
+    args, _ = lembretes.enviar_email.await_args
+    destinatario, assunto, corpo = args
+    assert destinatario == "ana@exemplo.com"
+    assert "Corte de cabelo" in assunto
+    assert "Ana Souza" in corpo
+    assert "Clínica Sorriso Feliz" in corpo
+    assert agenda.formatar_data_hora(data_hora) in corpo
+
+
+def test_reagendamento_reseta_lembrete_email_enviado_em(monkeypatch, tmp_path):
+    main, models, lembretes, agenda = carregar_app(monkeypatch, tmp_path)
+
+    empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
+    servico = _seed_servico(main, models, empresa, "Corte")
+    cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email="ana@exemplo.com")
+    agendamento = _seed_agendamento(
+        main,
+        models,
+        empresa,
+        cliente,
+        servico,
+        datetime.utcnow() + timedelta(hours=2),
+        lembrete_email_enviado_em=datetime.utcnow() - timedelta(hours=1),
+    )
+
+    db = main.SessionLocal()
+    try:
+        agendamento_db = db.query(models.Agendamento).filter_by(id=agendamento.id).first()
+        empresa_db = db.query(models.Empresa).filter_by(id=empresa.id).first()
+        novo_horario = _proxima_segunda_10h()  # sempre futuro, dentro do horário de funcionamento
+        atualizado, validacao = agenda.reagendar_agendamento(db, empresa_db, agendamento_db, novo_horario)
+        assert validacao.ok
+        assert atualizado.lembrete_email_enviado_em is None
+    finally:
+        db.close()

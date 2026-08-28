@@ -60,10 +60,10 @@
 
     <div class="panel-card p-3 p-lg-4 mb-3 d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-3">
       <div class="d-flex align-items-center gap-2">
-        <span class="badge rounded-pill {% if empresa.lembrete_canal_whatsapp or empresa.lembrete_canal_email %}text-bg-success{% else %}text-bg-secondary{% endif %}">{% if empresa.lembrete_canal_whatsapp or empresa.lembrete_canal_email %}✓{% else %}○{% endif %}</span>
+        <span class="badge rounded-pill {% if empresa.lembrete_canal_email %}text-bg-success{% else %}text-bg-secondary{% endif %}">{% if empresa.lembrete_canal_email %}✓{% else %}○{% endif %}</span>
         <div>
           <div class="fw-semibold">Lembretes automáticos</div>
-          <div class="text-secondary small">Escolha por WhatsApp, e-mail ou os dois — reduz falta em horário marcado (recomendado, não obrigatório).</div>
+          <div class="text-secondary small">Lembrete por e-mail antes do horário marcado — reduz falta (recomendado, não obrigatório).</div>
         </div>
       </div>
       {% if pode_editar %}

@@ -324,8 +324,6 @@ def test_configuracao_pelo_painel_ativa_ia_sem_reiniciar_processo(monkeypatch, t
             data={
                 "meta_phone_number_id": "x",
                 "bot_activation_words_raw": "oibot",
-                "meta_template_lembrete_nome": "lembrete_agendamento",
-                "meta_template_lembrete_idioma": "pt_BR",
                 "lembrete_antecedencia_horas": "24",
                 "lembrete_intervalo_minutos": "15",
                 "ai_enabled": "on",

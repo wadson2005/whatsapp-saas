@@ -108,30 +108,3 @@ async def enviar_lista(numero: str, texto: str, titulo_botao: str, secoes: list[
         payload["interactive"]["footer"] = {"text": rodape}
 
     return await _enviar(payload)
-
-
-async def enviar_template(numero: str, nome_template: str, idioma: str, parametros_corpo: list[str]) -> dict:
-    """Envia mensagem via template pré-aprovado da Meta.
-
-    Obrigatório fora da janela de 24h de atendimento ao cliente, quando não é
-    permitido enviar texto/interativo livre. `parametros_corpo` são os valores
-    posicionais para os placeholders {{1}}, {{2}}... do corpo do template.
-    """
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": numero,
-        "type": "template",
-        "template": {
-            "name": nome_template,
-            "language": {"code": idioma},
-            "components": [
-                {
-                    "type": "body",
-                    "parameters": [{"type": "text", "text": valor} for valor in parametros_corpo],
-                }
-            ],
-        },
-    }
-
-    return await _enviar(payload)

@@ -10,7 +10,7 @@
 <form method="post" action="/admin/configuracoes">
   <div class="panel-card p-3 p-lg-4 mb-4">
     <h2 class="h5 mb-1">Meta Graph API</h2>
-    <p class="text-secondary small mb-3">Credenciais usadas para enviar toda mensagem do bot (botões, listas, templates de lembrete).</p>
+    <p class="text-secondary small mb-3">Credenciais usadas para enviar toda mensagem do bot (botões e listas da conversa).</p>
     <div class="row g-3">
       <div class="col-12 col-lg-6">
         <label class="form-label">Token de acesso</label>
@@ -40,23 +40,8 @@
 
   <div class="panel-card p-3 p-lg-4 mb-4">
     <h2 class="h5 mb-1">Lembretes automáticos</h2>
-    <p class="text-secondary small mb-3">O template precisa estar aprovado no Meta Business Manager antes de mudar o nome aqui. Cada empresa escolhe pelo próprio painel (Configurar bot &rarr; Lembretes) se quer usar WhatsApp, e-mail ou os dois.</p>
-    {% if config.ultimo_erro_lembrete_whatsapp %}
-    <div class="alert alert-danger" role="alert">
-      <strong>Último erro ao enviar lembrete por WhatsApp:</strong> {{ config.ultimo_erro_lembrete_whatsapp }}
-      <span class="text-secondary">({{ config.ultimo_erro_lembrete_whatsapp_em.strftime('%d/%m/%Y %H:%M') if config.ultimo_erro_lembrete_whatsapp_em else '' }})</span>
-      — confira se o template abaixo está aprovado no Meta Business Manager.
-    </div>
-    {% endif %}
+    <p class="text-secondary small mb-3">Só por e-mail no momento. Cada empresa ativa pelo próprio painel (Configurar bot &rarr; Lembretes).</p>
     <div class="row g-3">
-      <div class="col-12 col-lg-4">
-        <label class="form-label">Nome do template</label>
-        <input type="text" name="meta_template_lembrete_nome" class="form-control" value="{{ config.meta_template_lembrete_nome or '' }}" required />
-      </div>
-      <div class="col-12 col-lg-2">
-        <label class="form-label">Idioma</label>
-        <input type="text" name="meta_template_lembrete_idioma" class="form-control" value="{{ config.meta_template_lembrete_idioma or '' }}" required />
-      </div>
       <div class="col-6 col-lg-3">
         <label class="form-label">Antecedência (horas)</label>
         <input type="number" name="lembrete_antecedencia_horas" class="form-control" min="1" step="1" value="{{ config.lembrete_antecedencia_horas }}" required />

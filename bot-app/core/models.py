@@ -41,7 +41,6 @@ class Empresa(Base):
     mensagem_confirmacao = Column(String)
     ativo = Column(Boolean, default=True)
     ativado_em = Column(DateTime, nullable=True)
-    lembrete_canal_whatsapp = Column(Boolean, default=True)
     lembrete_canal_email = Column(Boolean, default=False)
     criado_em = Column(DateTime, default=datetime.utcnow)
 
@@ -127,7 +126,6 @@ class Agendamento(Base):
     status = Column(String, default="agendado")  # agendado, confirmado, concluido, cancelado
     cancelado_em = Column(DateTime)
     motivo_cancelamento = Column(String)
-    lembrete_enviado_em = Column(DateTime)  # marca o envio pelo canal WhatsApp
     lembrete_email_enviado_em = Column(DateTime)
 
     empresa = relationship("Empresa", back_populates="agendamentos")
@@ -179,12 +177,8 @@ class ConfiguracaoSistema(Base):
 
     bot_activation_words_raw = Column(String, default="oibot")
 
-    meta_template_lembrete_nome = Column(String, default="lembrete_agendamento")
-    meta_template_lembrete_idioma = Column(String, default="pt_BR")
     lembrete_antecedencia_horas = Column(Integer, default=24)
     lembrete_intervalo_minutos = Column(Integer, default=15)
-    ultimo_erro_lembrete_whatsapp = Column(String)
-    ultimo_erro_lembrete_whatsapp_em = Column(DateTime)
 
     resend_api_key = Column(String)
     email_from_endereco = Column(String)

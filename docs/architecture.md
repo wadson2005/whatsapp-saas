@@ -11,7 +11,7 @@ Este documento descreve como as peças do sistema se encaixam e por que algumas 
 5. Se a máquina de estados não sabe o que fazer com a mensagem, ela consulta primeiro a base de conhecimento da empresa e, só depois, a camada de IA opcional (ver abaixo).
 6. O agendamento, quando confirmado, é validado e gravado em PostgreSQL (`services/agenda.py`) — conflito de horário, dia de funcionamento, horário de almoço e dias/datas indisponíveis são todos verificados antes de persistir. Para evitar overbooking por duas mensagens concorrentes disputando o mesmo horário, `agendar_servico`/`reagendar_agendamento` validam, travam a linha da `Empresa` (`SELECT ... FOR UPDATE`, efetivo em Postgres) e validam de novo antes de gravar — a segunda mensagem só segue depois que a primeira transação commitar, e nesse ponto já vê o conflito.
 7. A resposta volta como mensagem interativa (botão ou lista) via Meta Graph API (`integrations/meta_client.py`). A Evolution API só recebe o webhook e sobe a infraestrutura de WhatsApp — todo envio de mensagem passa pela Meta.
-8. Em paralelo, um ciclo assíncrono dentro do próprio processo (`main._loop_lembretes`) varre agendamentos próximos e dispara lembretes automáticos via template pré-aprovado da Meta.
+8. Em paralelo, um ciclo assíncrono dentro do próprio processo (`main._loop_lembretes`) varre agendamentos próximos e dispara lembretes automáticos por e-mail (Resend).
 
 ## Máquina de estados da conversa
 
@@ -236,14 +236,11 @@ Superadmin (login via `ADMIN_USERNAME`/`ADMIN_PASSWORD` do `.env`) não passa po
 
 `/docs`, `/redoc` e `/openapi.json` estão desligados nos dois apps (`main.py` e `admin.py`) — o FastAPI os deixa públicos por padrão, o que expunha toda a superfície de rotas (inclusive administrativas) sem autenticação. O cookie de sessão exige HTTPS (`https_only=True` no `SessionMiddleware` dos dois apps).
 
-### Lembretes de agendamento (WhatsApp e/ou e-mail)
+### Lembretes de agendamento (e-mail)
 
-Um loop assíncrono em `main.py` (`_loop_lembretes`, iniciado no `startup`) roda `services/lembretes.py::enviar_lembretes_pendentes` a cada `lembrete_intervalo_minutos`. Cada empresa escolhe em `/admin/configurar-bot/lembretes` quais canais usar (`Empresa.lembrete_canal_whatsapp`/`lembrete_canal_email`, ambos podem estar ligados):
+Um loop assíncrono em `main.py` (`_loop_lembretes`, iniciado no `startup`) roda `services/lembretes.py::enviar_lembretes_pendentes` a cada `lembrete_intervalo_minutos`. Cada empresa ativa o canal em `/admin/configurar-bot/lembretes` (`Empresa.lembrete_canal_email`). O envio é via API do Resend (`integrations/email_client.py`), só para clientes com `ClienteFinal.email` preenchido — a conversa por WhatsApp não coleta e-mail automaticamente, é cadastrado manualmente pelo painel. Se o cliente não tiver e-mail, o lembrete fecha o ciclo sem tentar de novo a cada rodada (marca `lembrete_email_enviado_em` mesmo sem enviar), em vez de reprocessar o mesmo agendamento indefinidamente.
 
-- **WhatsApp**: mensagem de template pré-aprovado no Meta Business Manager (`integrations/meta_client.py::enviar_template`) — único formato permitido fora da janela de 24h de atendimento. Usa as mesmas credenciais globais da Graph API (`ConfiguracaoSistema`).
-- **E-mail**: via API do Resend (`integrations/email_client.py`), só enviado para clientes com `ClienteFinal.email` preenchido — a conversa por WhatsApp não coleta e-mail automaticamente, é cadastrado manualmente pelo painel.
-
-Cada canal grava seu próprio carimbo de sucesso (`Agendamento.lembrete_enviado_em` para WhatsApp, `lembrete_email_enviado_em` para e-mail) — uma falha em um canal nunca bloqueia nem faz reenviar o outro no próximo ciclo. Se uma empresa ativar só o e-mail e um cliente específico não tiver e-mail cadastrado, o lembrete cai automaticamente para o WhatsApp para esse cliente, para ninguém ficar sem aviso. O último erro de envio por WhatsApp fica visível para o superadmin em `/admin/configuracoes` (`ConfiguracaoSistema.ultimo_erro_lembrete_whatsapp`).
+**Canal WhatsApp removido temporariamente.** A versão anterior também enviava lembrete por WhatsApp via mensagem de template pré-aprovado no Meta Business Manager (`integrations/meta_client.py::enviar_template`) — único formato permitido fora da janela de 24h de atendimento. Isso amarrava a funcionalidade à aprovação de um template pela Meta, o que não vale a pena para o estágio atual do produto. O código foi removido (não só desativado) — histórico no commit anterior a este, caso o canal volte a fazer sentido mais adiante.
 
 Pontos ainda em aberto:
 
