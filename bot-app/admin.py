@@ -16,7 +16,16 @@ from starlette.templating import Jinja2Templates
 
 from core.config import settings
 from core.database import get_db
-from core.models import Agendamento, ClienteFinal, Empresa, EmpresaConhecimento, Servico, SolicitacaoAtendimento, UsuarioPainel
+from core.models import (
+    Agendamento,
+    ClienteFinal,
+    ConversaIniciada,
+    Empresa,
+    EmpresaConhecimento,
+    Servico,
+    SolicitacaoAtendimento,
+    UsuarioPainel,
+)
 from core.rate_limit import excedeu_limite, ip_do_cliente
 from integrations.email_client import EmailError, email_configurado, enviar_email
 from integrations.evolution_client import (
@@ -360,6 +369,34 @@ def _aplicar_dados_servico(servico: Servico, dados: SimpleNamespace):
     servico.preco = dados.preco
     servico.ordem_exibicao = dados.ordem_exibicao
     servico.ativo = dados.ativo
+
+
+def _excluir_empresa_em_cascata(db, empresa: Empresa) -> None:
+    """Apaga a empresa e todos os dados vinculados a ela — exclusão definitiva, sem volta.
+
+    Existe pra permitir testar o produto de ponta a ponta (cadastrar, usar,
+    descadastrar) sem acumular lixo no banco — "desativar" (`Empresa.ativo`)
+    não serve pra isso, porque mantém os dados. Ordem de exclusão respeita as
+    FKs: agendamentos e solicitações primeiro (referenciam cliente/serviço),
+    só depois clientes e serviços.
+
+    Usuários do painel vinculados a essa empresa não são apagados — ficam sem
+    empresa (mesmo estado de quem ainda não cadastrou nenhuma), podem vincular
+    outra depois em `/admin/empresas/cadastrar`.
+    """
+    empresa_id = empresa.id
+
+    db.query(Agendamento).filter(Agendamento.empresa_id == empresa_id).delete(synchronize_session=False)
+    db.query(SolicitacaoAtendimento).filter(SolicitacaoAtendimento.empresa_id == empresa_id).delete(synchronize_session=False)
+    db.query(ClienteFinal).filter(ClienteFinal.empresa_id == empresa_id).delete(synchronize_session=False)
+    db.query(Servico).filter(Servico.empresa_id == empresa_id).delete(synchronize_session=False)
+    db.query(EmpresaConhecimento).filter(EmpresaConhecimento.empresa_id == empresa_id).delete(synchronize_session=False)
+    db.query(ConversaIniciada).filter(ConversaIniciada.empresa_id == empresa_id).delete(synchronize_session=False)
+    db.query(UsuarioPainel).filter(UsuarioPainel.empresa_id == empresa_id).update(
+        {UsuarioPainel.empresa_id: None}, synchronize_session=False
+    )
+    db.delete(empresa)
+    db.commit()
 
 
 @admin_app.get("", include_in_schema=False)
@@ -962,6 +999,42 @@ async def empresa_pausar(request: Request, empresa_id: int, db: Session = Depend
     db.commit()
 
     return RedirectResponse(url="/admin/configurar-bot?message=Bot pausado. Ele não vai responder no WhatsApp até você ativar de novo.", status_code=303)
+
+
+@admin_app.get("/empresas/{empresa_id}/excluir", response_class=HTMLResponse)
+async def empresa_excluir_page(request: Request, empresa_id: int, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    empresa = load_empresa(db, request, empresa_id)
+    contagens = {
+        "servicos": db.query(func.count(Servico.id)).filter(Servico.empresa_id == empresa_id).scalar() or 0,
+        "clientes": db.query(func.count(ClienteFinal.id)).filter(ClienteFinal.empresa_id == empresa_id).scalar() or 0,
+        "agendamentos": db.query(func.count(Agendamento.id)).filter(Agendamento.empresa_id == empresa_id).scalar() or 0,
+        "usuarios": db.query(func.count(UsuarioPainel.id)).filter(UsuarioPainel.empresa_id == empresa_id).scalar() or 0,
+    }
+
+    return templates.TemplateResponse(
+        request,
+        "admin/empresa_excluir.html",
+        page_context(request, title="Excluir empresa", empresa=empresa, contagens=contagens),
+    )
+
+
+@admin_app.post("/empresas/{empresa_id}/excluir")
+async def empresa_excluir_submit(request: Request, empresa_id: int, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
+    empresa = load_empresa(db, request, empresa_id)
+    nome_instancia = empresa.evolution_instance_name
+    excluindo_a_propria_empresa = request.session.get("usuario_empresa_id") == empresa_id
+
+    _excluir_empresa_em_cascata(db, empresa)
+
+    if nome_instancia:
+        await excluir_instancia(nome_instancia)
+
+    if excluindo_a_propria_empresa:
+        request.session["usuario_empresa_id"] = None
+        request.session["usuario_papel"] = None
+        return RedirectResponse(url="/admin/dashboard?message=Empresa excluída com sucesso.", status_code=303)
+
+    return RedirectResponse(url="/admin/empresas?message=Empresa excluída com sucesso.", status_code=303)
 
 
 @admin_app.get("/empresas/{empresa_id}/conectar", response_class=HTMLResponse)

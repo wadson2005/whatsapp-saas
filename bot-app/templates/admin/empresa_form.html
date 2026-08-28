@@ -70,6 +70,16 @@
           <button type="submit" class="btn btn-brand">Salvar</button>
         </div>
       </form>
+      {% if empresa and empresa.id %}
+      <hr class="my-4" />
+      <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
+        <div>
+          <div class="fw-semibold">Zona de perigo</div>
+          <div class="text-secondary small">Apaga a empresa e todos os dados vinculados a ela (serviços, clientes, agendamentos). Não pode ser desfeito.</div>
+        </div>
+        <a href="/admin/empresas/{{ empresa.id }}/excluir" class="btn btn-outline-danger text-nowrap">Excluir empresa</a>
+      </div>
+      {% endif %}
       {% if not empresa %}
       <script>
         (function () {

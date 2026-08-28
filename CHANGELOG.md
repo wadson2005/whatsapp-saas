@@ -4,6 +4,10 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ## [Unreleased]
 
+### Adicionado (exclusão definitiva de empresa)
+
+- `POST /admin/empresas/{id}/excluir` (com `GET` de confirmação antes, mostrando quantos serviços/clientes/agendamentos serão apagados) — apaga a empresa e tudo vinculado a ela (serviços, clientes, agendamentos, solicitações de atendimento, base de conhecimento) e a instância na Evolution API. Complementa "ativar/pausar" (`Empresa.ativo`), que só desliga o bot sem apagar nada — útil pra testar o produto de ponta a ponta sem acumular lixo no banco. Restrito a `require_papel_admin` (admin da própria empresa ou superadmin); `UsuarioPainel` vinculado não é apagado, só fica sem empresa. Se o próprio admin da empresa se auto-exclui, a sessão é atualizada na hora para não tentar carregar uma empresa que não existe mais.
+
 ### Corrigido (auditoria de segurança)
 
 - Rate limiting simples (Redis, contador com expiração) em `POST /admin/login` (10/min), `POST /admin/esqueci-senha` (5/min) e `POST /onboarding` (5/min) por IP — antes não havia nenhum limite, permitindo força bruta de credenciais e flood de criação de conta/e-mail. Falha do Redis nunca bloqueia o login (`core/rate_limit.py::excedeu_limite` deixa passar e loga, mesmo princípio de `services.configuracoes.obter_configuracao_isolada`).

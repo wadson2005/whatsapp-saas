@@ -182,6 +182,7 @@ whatsapp-saas/
 | `GET` | `/admin/configurar-bot` | Hub de configuração guiada — checklist com progresso real, botão de ativar/pausar o bot |
 | `GET`/`POST` | `/admin/configurar-bot/atendimento`, `/admin/configurar-bot/horarios` | Etapas guiadas de configuração (mensagens do bot, horários) |
 | `POST` | `/admin/empresas/{id}/ativar`, `/pausar` | Liga/desliga o bot no WhatsApp — nunca acontece automaticamente |
+| `GET`/`POST` | `/admin/empresas/{id}/excluir` | Apaga a empresa e tudo vinculado a ela (serviços, clientes, agendamentos) — irreversível, restrito ao admin da própria empresa ou ao superadmin |
 | `GET` | `/admin/empresas`, `/admin/servicos`, `/admin/clientes` | CRUDs administrativos |
 | `GET` | `/admin/empresas/{id}/conectar` | Gera um novo QR code para conectar/reconectar o WhatsApp de uma empresa |
 | `GET` | `/admin/conhecimento` | Base de conhecimento por empresa |
@@ -214,6 +215,7 @@ O bot identifica a empresa pela `instance`, abre (ou recupera) o estado da conve
 - [x] Landing page pública e conta separada de empresa — onboarding vira só criação de conta; empresa é cadastrada depois, self-service, já logado.
 - [x] Ativação explícita do bot — conectar o WhatsApp não liga o atendimento sozinho; hub de configuração guiada (`/admin/configurar-bot`) com pré-requisitos reais para ativar.
 - [x] Lembrete de agendamento por e-mail — cada empresa ativa o canal em `/admin/configurar-bot/lembretes`.
+- [x] Exclusão definitiva de empresa (`/admin/empresas/{id}/excluir`) — apaga serviços, clientes e agendamentos vinculados; complementa o "desativar" já existente, que só marca `ativo=False` sem apagar dados. Restrito ao admin da própria empresa ou ao superadmin.
 - [x] Rate limiting em `/admin/login`, `/admin/esqueci-senha` e `/onboarding`; `/docs` desligado em produção; cookie de sessão só por HTTPS.
 - [ ] Lembrete de agendamento por WhatsApp — removido temporariamente para não depender de aprovação de template no Meta Business Manager; volta como canal adicional ao de e-mail quando isso for resolvido.
 - [ ] Token de webhook por empresa (hoje é um segredo único compartilhado por todas as instâncias da Evolution API).

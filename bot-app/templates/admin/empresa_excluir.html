@@ -1,0 +1,25 @@
+{% extends 'admin/base.html' %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-7">
+    <div class="panel-card p-3 p-lg-4 border border-danger-subtle">
+      <h1 class="section-title mb-1">Excluir "{{ empresa.nome }}"</h1>
+      <p class="text-secondary">Essa ação é permanente e não pode ser desfeita. Serão apagados:</p>
+      <ul class="text-secondary">
+        <li>{{ contagens.servicos }} serviço(s)</li>
+        <li>{{ contagens.clientes }} cliente(s)</li>
+        <li>{{ contagens.agendamentos }} agendamento(s)</li>
+        <li>A instância do WhatsApp na Evolution API ({{ empresa.evolution_instance_name or 'nenhuma conectada' }})</li>
+      </ul>
+      {% if contagens.usuarios %}
+      <p class="text-secondary small">{{ contagens.usuarios }} usuário(s) do painel vinculado(s) a esta empresa não serão excluídos — só ficam sem empresa, podem cadastrar ou entrar em outra depois.</p>
+      {% endif %}
+
+      <form method="post" action="/admin/empresas/{{ empresa.id }}/excluir" class="d-flex justify-content-end gap-2 pt-3">
+        <a href="/admin/empresas/{{ empresa.id }}/editar" class="btn btn-outline-secondary">Cancelar</a>
+        <button type="submit" class="btn btn-danger">Sim, excluir permanentemente</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

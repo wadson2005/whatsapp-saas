@@ -136,6 +136,12 @@ O passo de serviços reaproveita `/admin/servicos` e `/admin/servicos/novo` dire
 
 **Pausado vs. nunca ativado, na prática**: o hub usa `empresa.ativado_em` pra diferenciar a cópia — "Tudo pronto pra ativar" (primeira vez) vira "Seu bot está pausado" / "Reativar bot" quando `ativado_em` já está setado, mesmo com os mesmos pré-requisitos técnicos satisfeitos.
 
+### Exclusão definitiva de empresa
+
+`ativo=False` ("pausar"/"desativar") nunca apagou dado nenhum — só desliga o webhook pra essa empresa. Pra testar o produto de ponta a ponta (cadastrar empresa, usar, descadastrar, cadastrar de novo) sem acumular lixo no banco, `POST /admin/empresas/{id}/excluir` (`require_papel_admin` — admin da própria empresa ou superadmin, com `load_empresa` garantindo que um admin de empresa só apaga a própria) faz exclusão de verdade, com uma tela de confirmação antes (`GET` na mesma rota, mostra quantos serviços/clientes/agendamentos serão apagados).
+
+`admin._excluir_empresa_em_cascata()` apaga na ordem que as FKs exigem — agendamentos e solicitações de atendimento primeiro (referenciam cliente/serviço), só depois clientes e serviços — e também remove a instância na Evolution API (`excluir_instancia`, best-effort, nunca levanta exceção). `UsuarioPainel` vinculado à empresa **não é apagado** — só fica sem empresa (`empresa_id=None`, mesmo estado de quem nunca cadastrou nenhuma), podendo vincular outra depois em `/admin/empresas/cadastrar`; existe pra não obrigar recriar a conta a cada ciclo de teste. Se quem executa a exclusão é o próprio admin da empresa (não o superadmin), a sessão é atualizada na hora (`usuario_empresa_id`/`usuario_papel` voltam a `None`) — sem isso, o dashboard tentaria carregar uma empresa que não existe mais em vez de mostrar o CTA de "cadastrar empresa".
+
 ## Configurações pelo painel
 
 `/admin/configuracoes` reúne, num formulário único (configuração global do sistema, não por empresa), tudo que antes só dava para trocar editando o `.env` e reiniciando o processo: credenciais da Meta, palavra de ativação do bot, parâmetros de lembrete automático e configuração completa da camada de IA.
