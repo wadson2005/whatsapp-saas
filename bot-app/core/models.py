@@ -27,6 +27,7 @@ class Empresa(Base):
     intervalo_entre_atendimentos_minutos = Column(Integer, default=15)
     dias_indisponiveis = Column(String, default="")
     datas_indisponiveis = Column(String, default="")
+    palavra_ativacao = Column(String, default="oibot")  # separa múltiplas palavras por vírgula
     atendimento_automatico_ativo = Column(Boolean, default=True)
     permitir_atendimento_humano = Column(Boolean, default=True)
     horario_resposta_inicio = Column(String, default="08:00")
@@ -174,8 +175,6 @@ class ConfiguracaoSistema(Base):
     meta_token = Column(String)
     meta_phone_number_id = Column(String)
     meta_business_id = Column(String)
-
-    bot_activation_words_raw = Column(String, default="oibot")
 
     lembrete_antecedencia_horas = Column(Integer, default=24)
     lembrete_intervalo_minutos = Column(Integer, default=15)

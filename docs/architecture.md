@@ -17,7 +17,7 @@ Este documento descreve como as peças do sistema se encaixam e por que algumas 
 
 O fluxo é uma máquina de estados baseada em palavra-chave e cliques de botão/lista, implementada em `conversa.py`. A IA não substitui essa máquina — ela só entra como intérprete de último recurso quando nenhuma regra sabe o que fazer com a mensagem.
 
-- **Estado inicial (`novo`)** — ignora mensagens aleatórias e só abre conversa quando a mensagem bate com a palavra de ativação configurada (`oibot` por padrão) ou quando o usuário toca em uma ação prevista.
+- **Estado inicial (`novo`)** — ignora mensagens aleatórias e só abre conversa quando a mensagem bate com a palavra de ativação **da empresa** (`Empresa.palavra_ativacao`, `oibot` por padrão, editável por empresa em `/admin/configurar-bot/atendimento`) ou quando o usuário toca em uma ação prevista.
 - **Lista de serviços** — busca os serviços ativos da empresa e envia uma lista interativa.
 - **Escolha de período** — botões para manhã, tarde ou "prefiro digitar" (texto livre).
 - **Confirmação** — cria o cliente final (se ainda não existir) e o agendamento, grava no banco e limpa o estado do Redis.
@@ -127,10 +127,12 @@ Requer a variável `PUBLIC_BASE_URL` (URL pública do bot) para montar a URL de 
 
 `GET /admin/configurar-bot` (`admin.py::configurar_bot`) é o hub que mostra esse checklist — calculado ao vivo a cada acesso por `_status_configuracao_bot(db, empresa)` (nenhum campo de "etapa atual" persistido; o estado é sempre derivado de dados reais: existe instância? está conectada? quantos serviços ativos? alguma mensagem customizada preenchida?). Duas sub-telas dedicadas, focadas só nos campos que representam (não reaproveitam o formulário grande de `empresa_form.html`, que mistura nome/slug/segmento com tudo mais):
 
-- `/admin/configurar-bot/atendimento` — as 4 mensagens customizáveis citadas acima.
+- `/admin/configurar-bot/atendimento` — `Empresa.palavra_ativacao` (por empresa, `oibot` por padrão) e as 4 mensagens customizáveis citadas acima. Na criação da empresa (`admin._aplicar_mensagens_padrao`), as 4 mensagens já nascem preenchidas com um texto padrão usando o nome da empresa — editar é opcional, o bot já funciona bem e soa personalizado sem nenhum passo extra.
 - `/admin/configurar-bot/horarios` — `horario_abertura`/`fechamento`, `intervalo_entre_atendimentos_minutos`, `dias_indisponiveis`, `datas_indisponiveis`.
 
 O passo de serviços reaproveita `/admin/servicos` e `/admin/servicos/novo` direto (CRUD já pronto) — só ganha uma faixa de contexto (`?voltar=configurar-bot`) com link de volta pro hub, em vez de duplicar a tela.
+
+**Bug corrigido nessa mudança**: `admin._aplicar_dados_empresa()` (usada por `/admin/empresas/nova`, `/admin/empresas/cadastrar` e `/admin/empresas/{id}/editar`) aplicava incondicionalmente todos os campos de comportamento do bot a partir do formulário — mas `empresa_form.html`/`empresa_cadastrar.html` (identidade/agenda) nunca tiveram esses campos. Resultado: toda empresa nascia com `permitir_atendimento_humano=False` (o atalho "falar com atendente" nunca aparecia pro cliente final) e `atendimento_automatico_ativo=False`, e qualquer edição de identidade depois apagava as mensagens já customizadas. `_aplicar_dados_empresa()` agora só toca nos campos que esse formulário realmente expõe (nome/slug/segmento/telefone/horário/`ativo`) — os demais ficam com o default da própria coluna (`True` para os dois toggles) até serem explicitamente editados em `/admin/configurar-bot/atendimento`.
 
 `_status_configuracao_bot()` também é reaproveitada por `/admin/dashboard`: quando a empresa da sessão ainda não está `ativo`, o dashboard normal (métricas) ganha um card no topo com o mesmo status e um link "Continuar configuração" — sem isso, quem já tinha empresa cadastrada só via esse aviso entrando manualmente no hub. Pra não pagar o custo de uma chamada à Evolution API em toda carga do dashboard, esse card só é calculado quando `not empresa.ativo`; empresa já ativa mostra só um badge estático "Bot ativo", sem round-trip externo.
 
@@ -144,7 +146,7 @@ O passo de serviços reaproveita `/admin/servicos` e `/admin/servicos/novo` dire
 
 ## Configurações pelo painel
 
-`/admin/configuracoes` reúne, num formulário único (configuração global do sistema, não por empresa), tudo que antes só dava para trocar editando o `.env` e reiniciando o processo: credenciais da Meta, palavra de ativação do bot, parâmetros de lembrete automático e configuração completa da camada de IA.
+`/admin/configuracoes` reúne, num formulário único (configuração global do sistema, não por empresa), tudo que antes só dava para trocar editando o `.env` e reiniciando o processo: credenciais da Meta, parâmetros de lembrete automático e configuração completa da camada de IA. (A palavra de ativação do bot deixou de ser global — é `Empresa.palavra_ativacao`, editável por empresa em `/admin/configurar-bot/atendimento`.)
 
 Ficam de fora, de propósito:
 

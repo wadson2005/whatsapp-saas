@@ -22,7 +22,6 @@ class Settings(BaseSettings):
     meta_token: str = Field(validation_alias="META_TOKEN")
     meta_phone_number_id: str = Field(validation_alias="META_PHONE_NUMBER_ID")
     meta_business_id: str | None = Field(default=None, validation_alias="META_BUSINESS_ID")
-    bot_activation_words_raw: str = Field(default="oibot", validation_alias="BOT_ACTIVATION_WORDS")
     seed_empresa_slug: str = Field(default="sorriso-feliz", validation_alias="SEED_EMPRESA_SLUG")
     seed_empresa_nome: str = Field(default="Clínica Sorriso Feliz", validation_alias="SEED_EMPRESA_NOME")
     seed_empresa_segmento: str = Field(default="clinica", validation_alias="SEED_EMPRESA_SEGMENTO")
@@ -79,15 +78,6 @@ class Settings(BaseSettings):
         if not valor or not valor.startswith(("http://", "https://")):
             raise ValueError("PUBLIC_BASE_URL deve ser uma URL completa (ex.: https://seu-dominio.com)")
         return valor
-
-    @property
-    def bot_activation_words(self) -> tuple[str, ...]:
-        palavras = [
-            palavra.strip().lower()
-            for palavra in self.bot_activation_words_raw.split(",")
-            if palavra.strip()
-        ]
-        return tuple(palavras) if palavras else ("oibot",)
 
 
 @lru_cache

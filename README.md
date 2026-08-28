@@ -46,7 +46,7 @@ Documentação mais profunda:
 ## Diferenciais técnicos
 
 - **Compatibilidade real SQLite/PostgreSQL** — os testes rodam em SQLite e a produção em PostgreSQL contra o mesmo bootstrap de schema, sem duplicar lógica de migration (ver `core/db_compat.py`).
-- **Configuração operacional viva no banco** — token da Meta, provider de IA, antecedência de lembrete e palavra de ativação são editáveis pelo painel e valem imediatamente, sem redeploy.
+- **Configuração operacional viva no banco** — token da Meta, provider de IA e antecedência de lembrete são editáveis pelo painel e valem imediatamente, sem redeploy. A palavra de ativação do bot é por empresa (`/admin/configurar-bot/atendimento`), não global.
 - **IA como fallback, nunca como autoridade** — a camada de IA só é consultada quando a máquina de estados e a base de conhecimento não resolvem, e nunca executa uma ação destrutiva (cancelamento, por exemplo) sem passar pela tela de confirmação normal.
 - **Suíte de testes de verdade** — 139 testes automatizados cobrindo onboarding, conversa, agendamento, lembretes, base de conhecimento, métricas, papéis/permissões e a camada de IA (com providers e Redis simulados, sem depender de serviços externos).
 - **Bootstrap de schema idempotente** — cria tabelas novas e adiciona colunas em bancos já existentes automaticamente, sem exigir um framework de migration para um projeto deste porte.
@@ -142,7 +142,7 @@ Todas documentadas em [bot-app/.env.example](bot-app/.env.example). As mais rele
 | `AI_ENABLED` | não (padrão `false`) | Liga a camada de IA — sem isso, comportamento idêntico ao de não ter essa camada |
 | `RESEND_API_KEY` / `EMAIL_FROM_ENDERECO` / `EMAIL_FROM_NOME` | não | Envio de e-mail via [Resend](https://resend.com) — usado na recuperação de senha (`/admin/esqueci-senha`) e, para as empresas que ativarem o canal, no lembrete de agendamento por e-mail. Sem isso, essas duas funcionalidades continuam respondendo normalmente, só não enviam e-mail nenhum (fica só no log) |
 
-> A maioria das variáveis operacionais (Meta, IA, lembretes, palavra de ativação) só serve como **valor inicial**: depois do primeiro boot, o sistema copia esses valores para a tabela `configuracao_sistema` e passa a usar o banco como fonte viva, editável em `/admin/configuracoes` sem reiniciar o processo.
+> A maioria das variáveis operacionais (Meta, IA, lembretes) só serve como **valor inicial**: depois do primeiro boot, o sistema copia esses valores para a tabela `configuracao_sistema` e passa a usar o banco como fonte viva, editável em `/admin/configuracoes` sem reiniciar o processo.
 
 ## Estrutura de diretórios
 
@@ -217,6 +217,7 @@ O bot identifica a empresa pela `instance`, abre (ou recupera) o estado da conve
 - [x] Lembrete de agendamento por e-mail — cada empresa ativa o canal em `/admin/configurar-bot/lembretes`.
 - [x] Exclusão definitiva de empresa (`/admin/empresas/{id}/excluir`) — apaga serviços, clientes e agendamentos vinculados; complementa o "desativar" já existente, que só marca `ativo=False` sem apagar dados. Restrito ao admin da própria empresa ou ao superadmin.
 - [x] Rate limiting em `/admin/login`, `/admin/esqueci-senha` e `/onboarding`; `/docs` desligado em produção; cookie de sessão só por HTTPS.
+- [x] Palavra de ativação do bot por empresa (`/admin/configurar-bot/atendimento`, antes era uma configuração global) e mensagens personalizadas já pré-preenchidas com o nome da empresa na criação — bot funciona bem e soa personalizado sem exigir configuração extra. Corrigido também um bug em que editar identidade/agenda da empresa (`/admin/empresas/{id}/editar`) apagava as mensagens customizadas e desligava o atendimento humano.
 - [ ] Lembrete de agendamento por WhatsApp — removido temporariamente para não depender de aprovação de template no Meta Business Manager; volta como canal adicional ao de e-mail quando isso for resolvido.
 - [ ] Token de webhook por empresa (hoje é um segredo único compartilhado por todas as instâncias da Evolution API).
 - [ ] Cobrança recorrente (assinatura por empresa).

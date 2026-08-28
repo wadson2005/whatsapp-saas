@@ -118,6 +118,61 @@ def test_mensagem_desconhecida_mostra_menu_e_atendente(monkeypatch, tmp_path):
     assert "atendimento:humano" in ids
 
 
+def test_palavra_de_ativacao_customizada_da_empresa_abre_direto_na_lista_de_servicos(monkeypatch, tmp_path):
+    main, conversa, models = carregar_app(monkeypatch, tmp_path)
+    conversa.redis_cliente = FakeRedis()
+    conversa.enviar_botoes = AsyncMock()
+    conversa.enviar_lista = AsyncMock()
+
+    empresa, _, _ = _criar_empresa_com_agendamento(main, models, "5586999999997", "clinica-sorriso-feliz")
+    db = main.SessionLocal()
+    try:
+        empresa_db = db.query(models.Empresa).filter_by(id=empresa.id).first()
+        empresa_db.palavra_ativacao = "quero marcar"
+        db.commit()
+    finally:
+        db.close()
+
+    with TestClient(main.app, base_url="https://testserver") as client:
+        resposta = client.post(
+            f"/webhook?token={WEBHOOK_SECRET}",
+            json=_payload_texto("clinica-sorriso-feliz", "5586999999997", "quero marcar"),
+        )
+
+    assert resposta.status_code == 200
+    assert conversa.enviar_lista.await_count == 1
+    args = conversa.enviar_lista.await_args.kwargs
+    assert "escolha um serviço" in args["texto"].lower()
+
+
+def test_palavra_de_ativacao_padrao_para_de_funcionar_apos_empresa_customizar_a_sua(monkeypatch, tmp_path):
+    main, conversa, models = carregar_app(monkeypatch, tmp_path)
+    conversa.redis_cliente = FakeRedis()
+    conversa.enviar_botoes = AsyncMock()
+    conversa.enviar_lista = AsyncMock()
+
+    empresa, _, _ = _criar_empresa_com_agendamento(main, models, "5586999999996", "clinica-sorriso-feliz")
+    db = main.SessionLocal()
+    try:
+        empresa_db = db.query(models.Empresa).filter_by(id=empresa.id).first()
+        empresa_db.palavra_ativacao = "quero marcar"
+        db.commit()
+    finally:
+        db.close()
+
+    with TestClient(main.app, base_url="https://testserver") as client:
+        resposta = client.post(
+            f"/webhook?token={WEBHOOK_SECRET}",
+            json=_payload_texto("clinica-sorriso-feliz", "5586999999996", "oibot"),
+        )
+
+    assert resposta.status_code == 200
+    assert conversa.enviar_lista.await_count == 1
+    args = conversa.enviar_lista.await_args.kwargs
+    # "oibot" (palavra global antiga) não é mais gatilho pra essa empresa — cai no menu principal
+    assert "próximo passo" in args["texto"].lower()
+
+
 def test_cancelamento_exige_confirmacao_e_cancela(monkeypatch, tmp_path):
     main, conversa, models = carregar_app(monkeypatch, tmp_path)
     conversa.redis_cliente = FakeRedis()
@@ -323,7 +378,6 @@ def test_configuracao_pelo_painel_ativa_ia_sem_reiniciar_processo(monkeypatch, t
             "/admin/configuracoes",
             data={
                 "meta_phone_number_id": "x",
-                "bot_activation_words_raw": "oibot",
                 "lembrete_antecedencia_horas": "24",
                 "lembrete_intervalo_minutos": "15",
                 "ai_enabled": "on",

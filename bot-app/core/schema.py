@@ -28,6 +28,7 @@ def ensure_schema():
         _add_column_if_missing(conn, "empresas", "intervalo_entre_atendimentos_minutos INTEGER DEFAULT 15")
         _add_column_if_missing(conn, "empresas", "dias_indisponiveis VARCHAR DEFAULT ''")
         _add_column_if_missing(conn, "empresas", "datas_indisponiveis VARCHAR DEFAULT ''")
+        _add_column_if_missing(conn, "empresas", "palavra_ativacao VARCHAR DEFAULT 'oibot'")
         _add_column_if_missing(
             conn, "empresas", f"atendimento_automatico_ativo BOOLEAN DEFAULT {sql_bool(True)}"
         )

@@ -182,6 +182,84 @@ def test_criar_empresa_sugere_slug_valido_quando_slug_tem_acento(monkeypatch, tm
     admin_module.criar_instancia.assert_not_awaited()
 
 
+def test_criar_empresa_ja_habilita_atendimento_automatico_e_humano(monkeypatch, tmp_path):
+    main, admin_module, models = carregar_app(monkeypatch, tmp_path)
+    _mockar_evolution(admin_module)
+
+    with TestClient(main.app, base_url="https://testserver") as client:
+        _login_superadmin(client)
+        client.post("/admin/empresas/nova", data=_dados_empresa(), follow_redirects=False)
+
+    db = main.SessionLocal()
+    try:
+        empresa = db.query(models.Empresa).one()
+    finally:
+        db.close()
+
+    assert empresa.atendimento_automatico_ativo is True
+    assert empresa.permitir_atendimento_humano is True
+    assert empresa.palavra_ativacao == "oibot"
+
+
+def test_criar_empresa_pre_preenche_mensagens_com_o_nome_da_empresa(monkeypatch, tmp_path):
+    main, admin_module, models = carregar_app(monkeypatch, tmp_path)
+    _mockar_evolution(admin_module)
+
+    with TestClient(main.app, base_url="https://testserver") as client:
+        _login_superadmin(client)
+        client.post("/admin/empresas/nova", data=_dados_empresa(), follow_redirects=False)
+
+    db = main.SessionLocal()
+    try:
+        empresa = db.query(models.Empresa).one()
+    finally:
+        db.close()
+
+    assert empresa.mensagem_boas_vindas and "Clínica Sorriso Feliz" in empresa.mensagem_boas_vindas
+    assert empresa.mensagem_fora_horario and "Clínica Sorriso Feliz" in empresa.mensagem_fora_horario
+    assert empresa.mensagem_atendimento_humano and "Clínica Sorriso Feliz" in empresa.mensagem_atendimento_humano
+    assert empresa.mensagem_encerramento and "Clínica Sorriso Feliz" in empresa.mensagem_encerramento
+
+
+def test_editar_empresa_nao_apaga_mensagens_nem_desliga_atendimento_humano(monkeypatch, tmp_path):
+    main, admin_module, models = carregar_app(monkeypatch, tmp_path)
+    _mockar_evolution(admin_module)
+
+    with TestClient(main.app, base_url="https://testserver") as client:
+        _login_superadmin(client)
+        client.post("/admin/empresas/nova", data=_dados_empresa(), follow_redirects=False)
+
+        db = main.SessionLocal()
+        try:
+            empresa = db.query(models.Empresa).one()
+            empresa_id = empresa.id
+            empresa.mensagem_boas_vindas = "Mensagem customizada pelo cliente"
+            empresa.palavra_ativacao = "quero marcar"
+            db.commit()
+        finally:
+            db.close()
+
+        # edita só identidade/agenda — não deveria tocar em mensagens, toggles nem palavra de ativação
+        resposta = client.post(
+            f"/admin/empresas/{empresa_id}/editar",
+            data=_dados_empresa(nome="Clínica Sorriso Feliz Ltda"),
+            follow_redirects=False,
+        )
+        assert resposta.status_code == 303
+
+    db = main.SessionLocal()
+    try:
+        atualizado = db.query(models.Empresa).filter_by(id=empresa_id).first()
+    finally:
+        db.close()
+
+    assert atualizado.nome == "Clínica Sorriso Feliz Ltda"
+    assert atualizado.mensagem_boas_vindas == "Mensagem customizada pelo cliente"
+    assert atualizado.palavra_ativacao == "quero marcar"
+    assert atualizado.atendimento_automatico_ativo is True
+    assert atualizado.permitir_atendimento_humano is True
+
+
 def test_formulario_de_empresa_nao_pede_mais_instancia_evolution(monkeypatch, tmp_path):
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
 

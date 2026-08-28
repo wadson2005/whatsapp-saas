@@ -161,6 +161,11 @@ def test_cadastrar_empresa_self_service_vincula_usuario_como_admin(monkeypatch, 
     assert empresa.ativado_em is None
     assert usuario.empresa_id == empresa.id
     assert usuario.papel == "admin"
+    # configuração rápida: já nasce pronta pra funcionar, sem exigir passo extra
+    assert empresa.atendimento_automatico_ativo is True
+    assert empresa.permitir_atendimento_humano is True
+    assert empresa.palavra_ativacao == "oibot"
+    assert empresa.mensagem_boas_vindas and "Clínica Sorriso Feliz" in empresa.mensagem_boas_vindas
 
 
 def test_cadastrar_empresa_bloqueado_para_quem_ja_tem_empresa(monkeypatch, tmp_path):
@@ -294,6 +299,44 @@ def test_configurar_bot_atendimento_salva_mensagens_customizadas(monkeypatch, tm
     finally:
         db.close()
     assert empresa.mensagem_boas_vindas == "Olá! Bem-vindo à Clínica Sorriso Feliz."
+
+
+def test_configurar_bot_atendimento_mostra_tudo_pre_preenchido(monkeypatch, tmp_path):
+    main, admin_module, models = carregar_app(monkeypatch, tmp_path)
+    _mockar_evolution(admin_module)
+
+    with TestClient(main.app, base_url="https://testserver") as client:
+        client.post("/onboarding", data=_dados_conta())
+        client.post("/admin/empresas/cadastrar", data=_dados_empresa())
+
+        pagina = client.get("/admin/configurar-bot/atendimento")
+
+    assert pagina.status_code == 200
+    assert "oibot" in pagina.text
+    assert "Clínica Sorriso Feliz" in pagina.text
+
+
+def test_configurar_bot_atendimento_salva_palavra_de_ativacao_customizada(monkeypatch, tmp_path):
+    main, admin_module, models = carregar_app(monkeypatch, tmp_path)
+    _mockar_evolution(admin_module)
+
+    with TestClient(main.app, base_url="https://testserver") as client:
+        client.post("/onboarding", data=_dados_conta())
+        client.post("/admin/empresas/cadastrar", data=_dados_empresa())
+
+        resposta = client.post(
+            "/admin/configurar-bot/atendimento",
+            data={"palavra_ativacao": "quero marcar, agendar"},
+            follow_redirects=False,
+        )
+        assert resposta.status_code == 303
+
+    db = main.SessionLocal()
+    try:
+        empresa = db.query(models.Empresa).filter_by(slug="clinica-sorriso-feliz").one()
+    finally:
+        db.close()
+    assert empresa.palavra_ativacao == "quero marcar, agendar"
 
 
 def test_configurar_bot_lembretes_salva_canal_escolhido(monkeypatch, tmp_path):

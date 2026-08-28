@@ -6,9 +6,14 @@
     <div class="panel-card p-3 p-lg-4">
       <div class="mb-4">
         <h1 class="section-title mb-1">Personalize o atendimento</h1>
-        <p class="text-secondary mb-0">Explique como o bot deve conversar com seus clientes. Tudo aqui é opcional — sem preencher, o bot usa uma mensagem padrão segura.</p>
+        <p class="text-secondary mb-0">Já vem preenchido com uma sugestão usando o nome da sua empresa — edite só o que quiser deixar diferente.</p>
       </div>
       <form method="post" action="/admin/configurar-bot/atendimento" class="row g-4">
+        <div class="col-12">
+          <label class="form-label fw-semibold" for="campo-palavra-ativacao">Palavra de ativação</label>
+          <div class="text-secondary small mb-2">Além das saudações padrão (oi, olá, bom dia...), essa(s) palavra(s) também abrem a conversa direto na lista de serviços. Separe várias por vírgula.</div>
+          <input type="text" name="palavra_ativacao" id="campo-palavra-ativacao" class="form-control" value="{{ empresa.palavra_ativacao or 'oibot' }}" placeholder="oibot" />
+        </div>
         <div class="col-12">
           <label class="form-label fw-semibold" for="campo-boas-vindas">Mensagem de boas-vindas</label>
           <div class="text-secondary small mb-2">Essa é a mensagem enviada quando um cliente inicia uma conversa com sua empresa.</div>

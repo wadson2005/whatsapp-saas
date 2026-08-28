@@ -4,6 +4,15 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ## [Unreleased]
 
+### Adicionado (palavra de ativação por empresa e mensagens pré-preenchidas)
+
+- `Empresa.palavra_ativacao` (novo campo, default `"oibot"`) — a palavra que abre a conversa direto na lista de serviços agora é por empresa, editável em `/admin/configurar-bot/atendimento`. Antes era uma configuração global (`ConfiguracaoSistema.bot_activation_words_raw`, superadmin-only), então toda empresa reagia à mesma palavra — removida junto com `Settings.bot_activation_words_raw`/`.env`'s `BOT_ACTIVATION_WORDS` e o painel "Ativação do bot" em `/admin/configuracoes`.
+- Ao criar uma empresa (`/admin/empresas/nova` ou `/admin/empresas/cadastrar`), as 4 mensagens personalizáveis (`mensagem_boas_vindas`, `mensagem_fora_horario`, `mensagem_atendimento_humano`, `mensagem_encerramento`) já nascem preenchidas com um texto padrão usando o nome da empresa (`admin._aplicar_mensagens_padrao`) — o objetivo é o bot já funcionar bem e soar personalizado sem exigir nenhuma configuração extra; editar em `/admin/configurar-bot/atendimento` fica opcional.
+
+### Corrigido (identidade da empresa apagava mensagens e desligava atendimento humano)
+
+- `admin._aplicar_dados_empresa()` — usada por `/admin/empresas/nova`, `/admin/empresas/cadastrar` **e** `/admin/empresas/{id}/editar` — aplicava incondicionalmente todos os campos de comportamento do bot a partir do formulário, mas `empresa_form.html`/`empresa_cadastrar.html` (identidade/agenda) nunca expuseram esses campos. Na prática: toda empresa nascia com `permitir_atendimento_humano=False` (o atalho "falar com atendente" nunca aparecia pro cliente final) e `atendimento_automatico_ativo=False`, e qualquer edição de identidade depois apagava mensagens já customizadas. Função agora só toca nos campos que o formulário realmente expõe (nome/slug/segmento/telefone/horário/`ativo`); os demais ficam com o default da própria coluna até serem editados explicitamente em `/admin/configurar-bot/atendimento`.
+
 ### Adicionado (exclusão definitiva de empresa)
 
 - `POST /admin/empresas/{id}/excluir` (com `GET` de confirmação antes, mostrando quantos serviços/clientes/agendamentos serão apagados) — apaga a empresa e tudo vinculado a ela (serviços, clientes, agendamentos, solicitações de atendimento, base de conhecimento) e a instância na Evolution API. Complementa "ativar/pausar" (`Empresa.ativo`), que só desliga o bot sem apagar nada — útil pra testar o produto de ponta a ponta sem acumular lixo no banco. Restrito a `require_papel_admin` (admin da própria empresa ou superadmin); `UsuarioPainel` vinculado não é apagado, só fica sem empresa. Se o próprio admin da empresa se auto-exclui, a sessão é atualizada na hora para não tentar carregar uma empresa que não existe mais.

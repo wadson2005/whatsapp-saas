@@ -954,8 +954,7 @@ async def processar_mensagem(db, empresa: Empresa, numero: str, texto: str, id_i
         return
 
     if passo == "novo":
-        config_sistema = obter_configuracao(db)
-        palavras_abertura = parse_activation_words(config_sistema.bot_activation_words_raw) + SAUDACOES_FIXAS
+        palavras_abertura = parse_activation_words(empresa.palavra_ativacao) + SAUDACOES_FIXAS
         if _texto_corresponde(texto, palavras_abertura) or id_interacao in {"ver_servicos", "menu:servicos"}:
             await _mostrar_lista_servicos(db, empresa, numero)
         else:

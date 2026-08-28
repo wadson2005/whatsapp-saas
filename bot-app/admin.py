@@ -330,35 +330,46 @@ def load_usuario(db, request: Request, usuario_id: int):
 
 
 def _aplicar_dados_empresa(empresa: Empresa, dados: SimpleNamespace):
+    """Aplica os campos do formulário de identidade/agenda (`empresa_form.html`/`empresa_cadastrar.html`).
+
+    Só toca nos campos que esse formulário realmente expõe. Mensagens
+    personalizadas e os toggles de atendimento automático/humano têm tela
+    própria (`/admin/configurar-bot/atendimento`) — aplicá-los aqui também
+    resetava esses valores (e desligava o atendimento humano!) toda vez que
+    alguém só editava nome/telefone/horário pelo `/admin/empresas/{id}/editar`,
+    já que esse form nunca inclui esses campos.
+    """
     empresa.nome = dados.nome
     empresa.slug = dados.slug
     empresa.segmento = dados.segmento
     empresa.telefone_whatsapp = dados.telefone_whatsapp
-    empresa.email = dados.email
-    empresa.endereco = dados.endereco
-    empresa.descricao = dados.descricao
-    empresa.logo_url = dados.logo_url
     empresa.horario_abertura = dados.horario_abertura
     empresa.horario_fechamento = dados.horario_fechamento
-    empresa.horario_almoco_inicio = dados.horario_almoco_inicio
-    empresa.horario_almoco_fim = dados.horario_almoco_fim
-    empresa.dias_funcionamento = dados.dias_funcionamento
     empresa.intervalo_entre_atendimentos_minutos = dados.intervalo_entre_atendimentos_minutos
     empresa.dias_indisponiveis = dados.dias_indisponiveis
     empresa.datas_indisponiveis = dados.datas_indisponiveis
-    empresa.atendimento_automatico_ativo = dados.atendimento_automatico_ativo
-    empresa.permitir_atendimento_humano = dados.permitir_atendimento_humano
-    empresa.horario_resposta_inicio = dados.horario_resposta_inicio
-    empresa.horario_resposta_fim = dados.horario_resposta_fim
-    empresa.mensagem_fora_horario = dados.mensagem_fora_horario
-    empresa.tempo_max_conversa_minutos = dados.tempo_max_conversa_minutos
-    empresa.tempo_expiracao_contexto_minutos = dados.tempo_expiracao_contexto_minutos
-    empresa.mensagem_boas_vindas = dados.mensagem_boas_vindas
-    empresa.mensagem_encerramento = dados.mensagem_encerramento
-    empresa.mensagem_atendimento_humano = dados.mensagem_atendimento_humano
-    empresa.mensagem_sem_horarios = dados.mensagem_sem_horarios
-    empresa.mensagem_confirmacao = dados.mensagem_confirmacao
     empresa.ativo = dados.ativo
+
+
+def _aplicar_mensagens_padrao(empresa: Empresa, nome_empresa: str) -> None:
+    """Pré-preenche as mensagens do bot com o nome da empresa — só chamado na criação.
+
+    Objetivo: o bot já funciona bem e soa personalizado assim que a empresa é
+    criada, sem exigir nenhuma configuração extra. Editar em
+    `/admin/configurar-bot/atendimento` fica opcional, não obrigatório.
+    """
+    empresa.mensagem_boas_vindas = (
+        f"Olá! Bem-vindo(a) à {nome_empresa} 😊 Posso te ajudar a ver nossos serviços, agendar um horário, "
+        "reagendar, cancelar ou falar com um atendente. Como posso ajudar?"
+    )
+    empresa.mensagem_fora_horario = (
+        f"No momento estamos fora do horário de atendimento humano da {nome_empresa}. "
+        "Vou te ajudar por aqui mesmo enquanto isso — digite Menu para ver as opções."
+    )
+    empresa.mensagem_atendimento_humano = (
+        f"Pronto! Registrei sua solicitação e a equipe da {nome_empresa} vai falar com você em breve."
+    )
+    empresa.mensagem_encerramento = f"Não encontrei nenhum agendamento seu em aberto na {nome_empresa}. Digite Menu para ver as opções."
 
 
 def _aplicar_dados_servico(servico: Servico, dados: SimpleNamespace):
@@ -773,6 +784,7 @@ async def empresa_new_submit(request: Request, db: Session = Depends(get_db), _:
     try:
         empresa = Empresa()
         _aplicar_dados_empresa(empresa, dados)
+        _aplicar_mensagens_padrao(empresa, dados.nome)
         empresa.telefone_whatsapp = telefone_normalizado
         empresa.evolution_instance_name = nome_instancia
         db.add(empresa)
@@ -894,6 +906,7 @@ async def empresa_cadastrar_submit(request: Request, db: Session = Depends(get_d
     try:
         empresa = Empresa()
         _aplicar_dados_empresa(empresa, dados)
+        _aplicar_mensagens_padrao(empresa, dados.nome)
         empresa.telefone_whatsapp = telefone_normalizado
         empresa.evolution_instance_name = nome_instancia
         empresa.ativo = False
@@ -1161,6 +1174,7 @@ async def configurar_bot_atendimento_submit(request: Request, db: Session = Depe
         return RedirectResponse(url="/admin/configurar-bot", status_code=303)
 
     form = await request.form()
+    empresa.palavra_ativacao = parse_optional_str(form.get("palavra_ativacao")) or "oibot"
     empresa.mensagem_boas_vindas = parse_optional_str(form.get("mensagem_boas_vindas"))
     empresa.mensagem_fora_horario = parse_optional_str(form.get("mensagem_fora_horario"))
     empresa.mensagem_atendimento_humano = parse_optional_str(form.get("mensagem_atendimento_humano"))
@@ -1875,7 +1889,6 @@ async def configuracoes_submit(request: Request, db: Session = Depends(get_db), 
     campos = {
         "meta_phone_number_id": (form.get("meta_phone_number_id") or "").strip(),
         "meta_business_id": parse_optional_str(form.get("meta_business_id")),
-        "bot_activation_words_raw": (form.get("bot_activation_words_raw") or "oibot").strip(),
         "lembrete_antecedencia_horas": parse_optional_int(form.get("lembrete_antecedencia_horas")) or 24,
         "lembrete_intervalo_minutos": parse_optional_int(form.get("lembrete_intervalo_minutos")) or 15,
         "email_from_endereco": parse_optional_str(form.get("email_from_endereco")),
