@@ -139,3 +139,143 @@ def test_qrcode_para_json_com_none_vira_null(monkeypatch, tmp_path):
     evolution_client = carregar_modulo(monkeypatch, tmp_path)
 
     assert evolution_client.qrcode_para_json(None) == "null"
+
+
+# --- enviar_botoes / enviar_lista: cada empresa responde pela própria instância ----
+
+
+def test_enviar_botoes_usa_a_instancia_informada_na_url(monkeypatch, tmp_path):
+    evolution_client = carregar_modulo(monkeypatch, tmp_path)
+    cliente_falso = _instalar_cliente_falso(
+        monkeypatch,
+        evolution_client,
+        _ClienteFalso(_RespostaFalsa(201, {"key": {"id": "abc"}})),
+    )
+
+    import asyncio
+
+    asyncio.run(
+        evolution_client.enviar_botoes(
+            instance="clinica-a",
+            numero="5511900000001",
+            texto="Escolha uma opção",
+            botoes=[{"id": "menu", "titulo": "Menu"}, {"id": "sair", "titulo": "Sair"}],
+            rodape="Rodapé",
+        )
+    )
+
+    method, url, kwargs = cliente_falso.chamadas[0]
+    assert method == "POST"
+    assert url.endswith("/message/sendButtons/clinica-a")
+    payload = kwargs["json"]
+    assert payload["number"] == "5511900000001"
+    assert payload["description"] == "Escolha uma opção"
+    assert payload["footer"] == "Rodapé"
+    assert payload["buttons"] == [
+        {"type": "reply", "displayText": "Menu", "id": "menu"},
+        {"type": "reply", "displayText": "Sair", "id": "sair"},
+    ]
+
+
+def test_enviar_botoes_limita_a_3_botoes(monkeypatch, tmp_path):
+    evolution_client = carregar_modulo(monkeypatch, tmp_path)
+    cliente_falso = _instalar_cliente_falso(
+        monkeypatch,
+        evolution_client,
+        _ClienteFalso(_RespostaFalsa(201, {})),
+    )
+
+    import asyncio
+
+    botoes = [{"id": f"b{i}", "titulo": f"Botão {i}"} for i in range(5)]
+    asyncio.run(evolution_client.enviar_botoes(instance="clinica-a", numero="5511900000001", texto="x", botoes=botoes))
+
+    _, _, kwargs = cliente_falso.chamadas[0]
+    assert len(kwargs["json"]["buttons"]) == 3
+
+
+def test_enviar_botoes_sem_instancia_recusa_o_envio(monkeypatch, tmp_path):
+    evolution_client = carregar_modulo(monkeypatch, tmp_path)
+    cliente_falso = _instalar_cliente_falso(monkeypatch, evolution_client, _ClienteFalso())
+
+    import asyncio
+
+    with pytest.raises(evolution_client.InstanciaNaoConfiguradaError):
+        asyncio.run(evolution_client.enviar_botoes(instance=None, numero="5511900000001", texto="x", botoes=[]))
+    with pytest.raises(evolution_client.InstanciaNaoConfiguradaError):
+        asyncio.run(evolution_client.enviar_botoes(instance="", numero="5511900000001", texto="x", botoes=[]))
+
+    assert cliente_falso.chamadas == []  # nunca chega a chamar a Evolution API
+
+
+def test_enviar_lista_usa_a_instancia_informada_na_url_e_monta_secoes(monkeypatch, tmp_path):
+    evolution_client = carregar_modulo(monkeypatch, tmp_path)
+    cliente_falso = _instalar_cliente_falso(
+        monkeypatch,
+        evolution_client,
+        _ClienteFalso(_RespostaFalsa(201, {})),
+    )
+
+    import asyncio
+
+    asyncio.run(
+        evolution_client.enviar_lista(
+            instance="clinica-b",
+            numero="5511900000002",
+            texto="Escolha um serviço",
+            titulo_botao="Ver serviços",
+            secoes=[{"titulo": "Serviços", "linhas": [{"id": "servico:1", "titulo": "Corte", "descricao": "R$ 50"}]}],
+            rodape="Toque numa opção",
+        )
+    )
+
+    method, url, kwargs = cliente_falso.chamadas[0]
+    assert method == "POST"
+    assert url.endswith("/message/sendList/clinica-b")
+    payload = kwargs["json"]
+    assert payload["number"] == "5511900000002"
+    assert payload["description"] == "Escolha um serviço"
+    assert payload["buttonText"] == "Ver serviços"
+    assert payload["footerText"] == "Toque numa opção"
+    assert payload["sections"] == [
+        {"title": "Serviços", "rows": [{"title": "Corte", "description": "R$ 50", "rowId": "servico:1"}]}
+    ]
+
+
+def test_enviar_lista_limita_a_10_linhas_no_total(monkeypatch, tmp_path):
+    evolution_client = carregar_modulo(monkeypatch, tmp_path)
+    cliente_falso = _instalar_cliente_falso(
+        monkeypatch,
+        evolution_client,
+        _ClienteFalso(_RespostaFalsa(201, {})),
+    )
+
+    import asyncio
+
+    secoes = [
+        {"titulo": "A", "linhas": [{"id": f"a{i}", "titulo": f"A{i}"} for i in range(6)]},
+        {"titulo": "B", "linhas": [{"id": f"b{i}", "titulo": f"B{i}"} for i in range(6)]},
+    ]
+    asyncio.run(
+        evolution_client.enviar_lista(
+            instance="clinica-a", numero="5511900000001", texto="x", titulo_botao="Ver", secoes=secoes
+        )
+    )
+
+    _, _, kwargs = cliente_falso.chamadas[0]
+    total_linhas = sum(len(s["rows"]) for s in kwargs["json"]["sections"])
+    assert total_linhas == 10
+
+
+def test_enviar_lista_sem_instancia_recusa_o_envio(monkeypatch, tmp_path):
+    evolution_client = carregar_modulo(monkeypatch, tmp_path)
+    cliente_falso = _instalar_cliente_falso(monkeypatch, evolution_client, _ClienteFalso())
+
+    import asyncio
+
+    with pytest.raises(evolution_client.InstanciaNaoConfiguradaError):
+        asyncio.run(
+            evolution_client.enviar_lista(instance=None, numero="5511900000001", texto="x", titulo_botao="Ver", secoes=[])
+        )
+
+    assert cliente_falso.chamadas == []

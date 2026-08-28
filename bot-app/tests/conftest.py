@@ -1,4 +1,5 @@
 import importlib
+import re
 import sys
 from pathlib import Path
 
@@ -70,8 +71,16 @@ class FakeRedis:
     def set(self, key, value, ex=None):
         self.storage[key] = value
 
-    def delete(self, key):
-        self.storage.pop(key, None)
+    def delete(self, *keys):
+        for key in keys:
+            self.storage.pop(key, None)
+
+    def scan_iter(self, match=None):
+        if not match:
+            return list(self.storage.keys())
+        padrao = re.escape(match).replace(r"\*", ".*")
+        regex = re.compile(f"^{padrao}$")
+        return [chave for chave in self.storage if regex.match(chave)]
 
     def incr(self, key):
         self.storage[key] = int(self.storage.get(key, 0)) + 1

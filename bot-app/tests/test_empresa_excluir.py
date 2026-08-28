@@ -25,7 +25,7 @@ def _seed_empresa(main, models, slug: str = "clinica-a", nome: str = "Clínica A
             nome=nome,
             slug=slug,
             segmento="clinica",
-            telefone_whatsapp="5511999999990",
+            telefone_whatsapp=f"5511999{sum(ord(c) for c in slug) % 1000000:06d}",
             evolution_instance_name=slug,
             horario_abertura="08:00",
             horario_fechamento="18:00",
@@ -227,3 +227,50 @@ def test_pagina_de_confirmacao_mostra_contagens(monkeypatch, tmp_path):
     assert "1 serviço" in resposta.text
     assert "1 cliente" in resposta.text
     assert "1 agendamento" in resposta.text
+
+
+def test_excluir_empresa_limpa_estado_transitorio_no_redis(monkeypatch, tmp_path):
+    main, admin_module, models, _ = carregar_app(monkeypatch, tmp_path)
+
+    empresa = _seed_empresa(main, models)
+    redis_client_module = importlib.import_module("core.redis_client")
+    redis_cliente = redis_client_module.redis_cliente
+    redis_cliente.set(f"conversa:{empresa.id}:5511900000001", '{"passo": "aguardando_servico", "contexto": {}}')
+    redis_cliente.set(f"ai:cache:{empresa.id}:algumhash", '{"intent": "consultar_servicos"}')
+    redis_cliente.set(f"conversa:999999:5511900000002", '{"passo": "novo", "contexto": {}}')  # de outra empresa, não pode ser afetado
+
+    with TestClient(main.app, base_url="https://testserver") as client:
+        _login_superadmin(client)
+        resposta = client.post(f"/admin/empresas/{empresa.id}/excluir", follow_redirects=False)
+
+    assert resposta.status_code == 303
+    assert redis_cliente.get(f"conversa:{empresa.id}:5511900000001") is None
+    assert redis_cliente.get(f"ai:cache:{empresa.id}:algumhash") is None
+    assert redis_cliente.get("conversa:999999:5511900000002") is not None  # não mexeu em chave de outra empresa
+
+
+def test_mensagem_para_instancia_de_empresa_excluida_nao_processa_nada(monkeypatch, tmp_path):
+    main, admin_module, models, _ = carregar_app(monkeypatch, tmp_path)
+
+    empresa = _seed_empresa(main, models, slug="clinica-a")
+
+    with TestClient(main.app, base_url="https://testserver") as client:
+        _login_superadmin(client)
+        client.post(f"/admin/empresas/{empresa.id}/excluir", follow_redirects=False)
+
+    conftest_module = importlib.import_module("conftest")
+
+    with TestClient(main.app, base_url="https://testserver") as client:
+        resposta = client.post(
+            f"/webhook?token={conftest_module.WEBHOOK_SECRET}",
+            json={
+                "instance": "clinica-a",
+                "data": {
+                    "key": {"fromMe": False, "remoteJid": "5511900000001@s.whatsapp.net"},
+                    "message": {"conversation": "oibot"},
+                },
+            },
+        )
+
+    assert resposta.status_code == 200
+    assert resposta.json() == {"status": "empresa_nao_encontrada"}

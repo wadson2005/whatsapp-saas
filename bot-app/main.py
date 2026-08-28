@@ -3,6 +3,7 @@ import hmac
 import logging
 import re
 from contextlib import suppress
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -233,6 +234,29 @@ def extrair_conteudo(dados: dict) -> tuple[str | None, str | None]:
     return None, None
 
 
+def _atualizar_estado_conexao(db: Session, payload: dict) -> dict:
+    """Persiste o último estado de conexão avisado pela Evolution (`connection.update`).
+
+    Não filtra por `Empresa.ativo` — o estado da conexão importa mesmo durante
+    o onboarding (empresa ainda não ativada) e mesmo com o bot pausado. É só
+    registro do último aviso — nunca é usado pra decidir se uma mensagem é
+    processada (isso continua sendo o filtro `ativo=True` já existente).
+    """
+    nome_instancia = payload.get("instance")
+    estado = (payload.get("data") or {}).get("state")
+    if not nome_instancia or not estado:
+        return {"status": "ignorado"}
+
+    empresa = db.query(Empresa).filter_by(evolution_instance_name=nome_instancia).first()
+    if not empresa:
+        return {"status": "empresa_nao_encontrada"}
+
+    empresa.estado_conexao_whatsapp = estado
+    empresa.estado_conexao_atualizado_em = datetime.utcnow()
+    db.commit()
+    return {"status": "ok"}
+
+
 @app.post("/webhook")
 async def receber_mensagem(request: Request, db: Session = Depends(get_db)):
     token = request.query_params.get("token") or ""
@@ -241,6 +265,10 @@ async def receber_mensagem(request: Request, db: Session = Depends(get_db)):
 
     payload = await request.json()
     logger.debug("Payload recebido no webhook: %s", payload)
+
+    if payload.get("event") == "connection.update":
+        return _atualizar_estado_conexao(db, payload)
+
     try:
         nome_instancia = payload["instance"]
         dados = payload["data"]

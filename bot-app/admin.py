@@ -27,6 +27,7 @@ from core.models import (
     UsuarioPainel,
 )
 from core.rate_limit import excedeu_limite, ip_do_cliente
+from core.redis_client import redis_cliente
 from integrations.email_client import EmailError, email_configurado, enviar_email
 from integrations.evolution_client import (
     EvolutionAPIConexaoError,
@@ -338,11 +339,18 @@ def _aplicar_dados_empresa(empresa: Empresa, dados: SimpleNamespace):
     resetava esses valores (e desligava o atendimento humano!) toda vez que
     alguém só editava nome/telefone/horário pelo `/admin/empresas/{id}/editar`,
     já que esse form nunca inclui esses campos.
+
+    `telefone_whatsapp` só é aplicado enquanto a empresa ainda não tem uma
+    instância Evolution — depois de criada e conectada, o número não pode ser
+    trocado por uma edição solta (deixaria `telefone_whatsapp` e a instância
+    real apontando pra números diferentes). Troca de número é um fluxo à parte
+    (reconexão), não uma edição de cadastro — ainda não implementado.
     """
     empresa.nome = dados.nome
     empresa.slug = dados.slug
     empresa.segmento = dados.segmento
-    empresa.telefone_whatsapp = dados.telefone_whatsapp
+    if not empresa.evolution_instance_name:
+        empresa.telefone_whatsapp = dados.telefone_whatsapp
     empresa.horario_abertura = dados.horario_abertura
     empresa.horario_fechamento = dados.horario_fechamento
     empresa.intervalo_entre_atendimentos_minutos = dados.intervalo_entre_atendimentos_minutos
@@ -408,6 +416,24 @@ def _excluir_empresa_em_cascata(db, empresa: Empresa) -> None:
     )
     db.delete(empresa)
     db.commit()
+    _limpar_redis_da_empresa(empresa_id)
+
+
+def _limpar_redis_da_empresa(empresa_id: int) -> None:
+    """Apaga estado de conversa e cache de IA da empresa excluída.
+
+    Best-effort: a empresa já foi apagada do Postgres (fonte de verdade) nesse
+    ponto, então uma falha aqui nunca deve impedir a exclusão — só deixaria
+    chaves órfãs no Redis, que de qualquer forma nunca mais são alcançadas
+    (nada consegue processar mensagem para um empresa_id que não existe mais).
+    """
+    try:
+        chaves = list(redis_cliente.scan_iter(match=f"conversa:{empresa_id}:*"))
+        chaves += list(redis_cliente.scan_iter(match=f"ai:cache:{empresa_id}:*"))
+        if chaves:
+            redis_cliente.delete(*chaves)
+    except Exception:
+        logger.warning("Falha ao limpar estado no Redis da empresa %s (dado órfão, sem efeito real).", empresa_id)
 
 
 @admin_app.get("", include_in_schema=False)
@@ -602,6 +628,12 @@ async def dashboard(request: Request, db: Session = Depends(get_db), _: None = D
     if empresa and not empresa.ativo:
         status_bot = await _status_configuracao_bot(db, empresa)
 
+    # Empresa ativa não faz round-trip na Evolution API a cada carga do dashboard —
+    # usa o último estado avisado pelo webhook connection.update (ver main.py).
+    whatsapp_desconectado = bool(
+        empresa and empresa.ativo and empresa.estado_conexao_whatsapp in ("close", "refused")
+    )
+
     total_empresas = None
     empresas_ativas = None
     if request.session.get("is_superadmin"):
@@ -658,6 +690,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db), _: None = D
             title="Dashboard",
             empresa=empresa,
             status_bot=status_bot,
+            whatsapp_desconectado=whatsapp_desconectado,
             empresas=empresas,
             selected_empresa_id=empresa.id if empresa else empresa_id,
             total_empresas=total_empresas,
@@ -725,6 +758,8 @@ async def empresa_new_submit(request: Request, db: Session = Depends(get_db), _:
         erro_validacao = "Já existe uma empresa com esse slug."
     elif not _normalizar_telefone(dados.telefone_whatsapp):
         erro_validacao = "Informe o telefone WhatsApp para conectar a empresa."
+    elif db.query(Empresa.id).filter(Empresa.telefone_whatsapp == _normalizar_telefone(dados.telefone_whatsapp)).first():
+        erro_validacao = "Esse número de WhatsApp já está conectado a outra empresa neste sistema."
 
     if erro_validacao:
         return templates.TemplateResponse(
@@ -802,7 +837,7 @@ async def empresa_new_submit(request: Request, db: Session = Depends(get_db), _:
                 title="Nova empresa",
                 empresa=dados,
                 action_url="/admin/empresas/nova",
-                error="Esse slug acabou de ser usado por outro cadastro. Escolha outro.",
+                error="Esse slug ou telefone acabou de ser usado por outro cadastro nesse instante. Volte e tente de novo.",
             ),
             status_code=400,
         )
@@ -847,6 +882,8 @@ async def empresa_cadastrar_submit(request: Request, db: Session = Depends(get_d
         erro_validacao = "Já existe uma empresa com esse slug."
     elif not _normalizar_telefone(dados.telefone_whatsapp):
         erro_validacao = "Informe o telefone WhatsApp para conectar a empresa."
+    elif db.query(Empresa.id).filter(Empresa.telefone_whatsapp == _normalizar_telefone(dados.telefone_whatsapp)).first():
+        erro_validacao = "Esse número de WhatsApp já está conectado a outra empresa neste sistema."
 
     if erro_validacao:
         return templates.TemplateResponse(
@@ -927,7 +964,7 @@ async def empresa_cadastrar_submit(request: Request, db: Session = Depends(get_d
                 title="Cadastrar minha empresa",
                 empresa=dados,
                 action_url="/admin/empresas/cadastrar",
-                error="Esse slug acabou de ser usado por outro cadastro. Escolha outro.",
+                error="Esse slug ou telefone acabou de ser usado por outro cadastro nesse instante. Volte e tente de novo.",
             ),
             status_code=400,
         )

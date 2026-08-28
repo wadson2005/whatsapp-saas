@@ -11,6 +11,13 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 - `main.py::extrair_conteudo` reescrito para o formato real de resposta de botão/lista da Evolution (Baileys) — o parser anterior só reconhecia o formato do Meta Graph API, que nunca chega de verdade por esse webhook (só a Evolution chama `/webhook`).
 - Meta permanece integrada (`integrations/meta_client.py`, credenciais em `/admin/configuracoes`) mas desacoplada do fluxo de conversas — decisão de produto: Evolution API é o único provider suportado nesta versão (ver próxima seção).
 
+### Adicionado/Corrigido (estabilização multiempresa — telefone único, trava de edição, connection.update)
+
+- `Empresa.telefone_whatsapp` agora é `unique` — banco recusa duas empresas com o mesmo número (migração idempotente em `core/schema.py`, com savepoint próprio pra nunca derrubar o boot inteiro se já houver duplicidade em dados antigos). Validação também no formulário de criação (`/admin/empresas/nova` e `/cadastrar`), comparando números já normalizados (dígitos, sem formatação) — pega o caso comum antes de chamar a Evolution API; a constraint no banco é a garantia real contra corrida entre duas requisições simultâneas.
+- `telefone_whatsapp` não é mais editável por `/admin/empresas/{id}/editar` depois que a empresa já tem uma instância — evita o estado inconsistente de o cadastro apontar pra um número e a instância real pra outro. Troca de número fica para um fluxo de reconexão futuro (não implementado ainda).
+- Evento `connection.update` da Evolution API (antes recebido e descartado) agora atualiza `Empresa.estado_conexao_whatsapp`/`estado_conexao_atualizado_em`. Dashboard de empresa ativa mostra um aviso de "WhatsApp desconectado" quando o último estado avisado é `close`/`refused`, sem precisar de round-trip na Evolution API a cada carregamento.
+- Exclusão de empresa agora também limpa as chaves transitórias no Redis (`conversa:{empresa_id}:*`, `ai:cache:{empresa_id}:*`) — antes ficavam órfãs até expirar por TTL.
+
 ### Adicionado (palavra de ativação por empresa e mensagens pré-preenchidas)
 
 - `Empresa.palavra_ativacao` (novo campo, default `"oibot"`) — a palavra que abre a conversa direto na lista de serviços agora é por empresa, editável em `/admin/configurar-bot/atendimento`. Antes era uma configuração global (`ConfiguracaoSistema.bot_activation_words_raw`, superadmin-only), então toda empresa reagia à mesma palavra — removida junto com `Settings.bot_activation_words_raw`/`.env`'s `BOT_ACTIVATION_WORDS` e o painel "Ativação do bot" em `/admin/configuracoes`.

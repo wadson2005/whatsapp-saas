@@ -1,8 +1,13 @@
+import logging
+
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import DBAPIError
 
 from . import models  # noqa: F401
 from .database import Base, engine
 from .db_compat import sql_bool
+
+logger = logging.getLogger(__name__)
 
 
 def _add_column_if_missing(conn, table_name: str, column_ddl: str):
@@ -63,8 +68,11 @@ def ensure_schema():
         _add_column_if_missing(conn, "configuracao_sistema", "resend_api_key VARCHAR")
         _add_column_if_missing(conn, "configuracao_sistema", "email_from_endereco VARCHAR")
         _add_column_if_missing(conn, "configuracao_sistema", "email_from_nome VARCHAR")
+        _add_column_if_missing(conn, "empresas", "estado_conexao_whatsapp VARCHAR")
+        _add_column_if_missing(conn, "empresas", "estado_conexao_atualizado_em TIMESTAMP")
         _backfill_ativado_em(conn)
         _permitir_usuario_sem_empresa(conn)
+        _adicionar_unique_telefone_whatsapp(conn)
 
 
 def _backfill_ativado_em(conn):
@@ -93,3 +101,43 @@ def _permitir_usuario_sem_empresa(conn):
     if conn.dialect.name != "postgresql":
         return
     conn.execute(text("ALTER TABLE usuarios_painel ALTER COLUMN empresa_id DROP NOT NULL"))
+
+
+def _adicionar_unique_telefone_whatsapp(conn):
+    """Impede duas empresas com o mesmo `telefone_whatsapp` — proteção real contra
+    duas empresas conectando o mesmo número (a validação da rota é a primeira
+    linha de defesa, isso aqui é a garantia contra corrida entre requisições
+    simultâneas).
+
+    SQLite (testes) já nasce com a constraint via `unique=True` no modelo. Em
+    Postgres precisa de ALTER TABLE — idempotente (checa se já existe antes) e
+    nunca derruba o boot: se já houver telefones duplicados em produção (dado
+    anterior a essa migration), a constraint falha e o erro fica só registrado
+    no log, sem impedir o resto da aplicação de subir. Nesse caso a duplicidade
+    precisa ser resolvida manualmente antes da constraint conseguir ser criada.
+    """
+    if conn.dialect.name != "postgresql":
+        return
+    existe = conn.execute(
+        text(
+            "SELECT 1 FROM pg_constraint "
+            "WHERE conname = 'uq_empresas_telefone_whatsapp' AND conrelid = 'empresas'::regclass"
+        )
+    ).first()
+    if existe:
+        logger.debug("Constraint uq_empresas_telefone_whatsapp já existe em empresas — nada a fazer.")
+        return
+    try:
+        with conn.begin_nested():  # savepoint: uma falha aqui não derruba as outras migrations desta transação
+            conn.execute(
+                text("ALTER TABLE empresas ADD CONSTRAINT uq_empresas_telefone_whatsapp UNIQUE (telefone_whatsapp)")
+            )
+    except DBAPIError:
+        logger.error(
+            "Não foi possível criar a constraint UNIQUE em empresas.telefone_whatsapp — "
+            "provavelmente já existem números duplicados no banco. A validação da rota "
+            "(admin.py) continua ativa sozinha até isso ser resolvido manualmente e o "
+            "processo ser reiniciado."
+        )
+    else:
+        logger.info("Constraint uq_empresas_telefone_whatsapp criada com sucesso em empresas.telefone_whatsapp.")

@@ -2,6 +2,7 @@ import importlib
 from pathlib import Path
 from unittest.mock import AsyncMock
 
+import pytest
 from fastapi.testclient import TestClient
 
 from conftest import WEBHOOK_SECRET, preparar_ambiente
@@ -260,6 +261,99 @@ def test_editar_empresa_nao_apaga_mensagens_nem_desliga_atendimento_humano(monke
     assert atualizado.permitir_atendimento_humano is True
 
 
+# --- Fase 1 da estabilização multiempresa: número não pode ser duplicado nem trocado ---
+
+
+def test_nao_permite_duas_empresas_com_o_mesmo_telefone(monkeypatch, tmp_path):
+    main, admin_module, models = carregar_app(monkeypatch, tmp_path)
+    _mockar_evolution(admin_module)
+
+    with TestClient(main.app, base_url="https://testserver") as client:
+        _login_superadmin(client)
+
+        primeira = client.post("/admin/empresas/nova", data=_dados_empresa(), follow_redirects=False)
+        assert primeira.status_code == 303
+
+        segunda = client.post(
+            "/admin/empresas/nova",
+            data=_dados_empresa(slug="outra-empresa", nome="Outra Empresa"),  # mesmo telefone_whatsapp
+            follow_redirects=False,
+        )
+
+    assert segunda.status_code == 400
+    assert "já está conectado a outra empresa" in segunda.text
+    admin_module.criar_instancia.assert_awaited_once()  # nunca chegou a criar instância pra segunda tentativa
+
+    db = main.SessionLocal()
+    try:
+        assert db.query(models.Empresa).count() == 1
+    finally:
+        db.close()
+
+
+def test_numeros_com_formatacao_diferente_sao_reconhecidos_como_o_mesmo(monkeypatch, tmp_path):
+    main, admin_module, models = carregar_app(monkeypatch, tmp_path)
+    _mockar_evolution(admin_module)
+
+    with TestClient(main.app, base_url="https://testserver") as client:
+        _login_superadmin(client)
+
+        client.post("/admin/empresas/nova", data=_dados_empresa(telefone_whatsapp="5586999999999"), follow_redirects=False)
+
+        resposta = client.post(
+            "/admin/empresas/nova",
+            data=_dados_empresa(
+                slug="outra-empresa",
+                nome="Outra Empresa",
+                telefone_whatsapp="+55 (86) 99999-9999",  # mesmos dígitos, formatação diferente
+            ),
+            follow_redirects=False,
+        )
+
+    assert resposta.status_code == 400
+    assert "já está conectado a outra empresa" in resposta.text
+    admin_module.criar_instancia.assert_awaited_once()
+
+    db = main.SessionLocal()
+    try:
+        assert db.query(models.Empresa).count() == 1
+    finally:
+        db.close()
+
+
+def test_editar_empresa_nao_permite_trocar_telefone_ja_conectado(monkeypatch, tmp_path):
+    main, admin_module, models = carregar_app(monkeypatch, tmp_path)
+    _mockar_evolution(admin_module)
+
+    with TestClient(main.app, base_url="https://testserver") as client:
+        _login_superadmin(client)
+        client.post("/admin/empresas/nova", data=_dados_empresa(), follow_redirects=False)
+
+        db = main.SessionLocal()
+        try:
+            empresa_id = db.query(models.Empresa).one().id
+        finally:
+            db.close()
+
+        pagina = client.get(f"/admin/empresas/{empresa_id}/editar")
+        assert "disabled" in pagina.text  # campo de telefone bloqueado na tela
+
+        resposta = client.post(
+            f"/admin/empresas/{empresa_id}/editar",
+            data=_dados_empresa(telefone_whatsapp="5511888888888"),  # tenta trocar via POST direto
+            follow_redirects=False,
+        )
+        assert resposta.status_code == 303
+
+    db = main.SessionLocal()
+    try:
+        empresa = db.query(models.Empresa).filter_by(id=empresa_id).first()
+    finally:
+        db.close()
+
+    assert empresa.telefone_whatsapp == "5586999999999"  # continua o número original, ignorou a troca
+
+
 def test_formulario_de_empresa_nao_pede_mais_instancia_evolution(monkeypatch, tmp_path):
     main, admin_module, models = carregar_app(monkeypatch, tmp_path)
 
@@ -270,3 +364,23 @@ def test_formulario_de_empresa_nao_pede_mais_instancia_evolution(monkeypatch, tm
 
     assert resposta.status_code == 200
     assert "evolution_instance_name" not in resposta.text
+
+
+def test_banco_recusa_telefone_duplicado_mesmo_ignorando_a_validacao_da_rota(monkeypatch, tmp_path):
+    """Simula a corrida entre duas requisições simultâneas: a constraint UNIQUE no
+    banco é a garantia real, não só a checagem feita antes de criar a instância."""
+    from sqlalchemy.exc import IntegrityError
+
+    main, admin_module, models = carregar_app(monkeypatch, tmp_path)
+
+    db = main.SessionLocal()
+    try:
+        db.add(models.Empresa(nome="A", slug="empresa-a", segmento="clinica", telefone_whatsapp="5586999999999", evolution_instance_name="empresa-a"))
+        db.commit()
+
+        db.add(models.Empresa(nome="B", slug="empresa-b", segmento="clinica", telefone_whatsapp="5586999999999", evolution_instance_name="empresa-b"))
+        with pytest.raises(IntegrityError):
+            db.commit()
+    finally:
+        db.rollback()
+        db.close()

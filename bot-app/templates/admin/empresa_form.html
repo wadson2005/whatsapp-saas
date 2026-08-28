@@ -30,8 +30,13 @@
         </div>
         <div class="col-12 col-lg-6">
           <label class="form-label">Telefone WhatsApp</label>
+          {% if empresa and empresa.evolution_instance_name %}
+          <input type="text" class="form-control" value="{{ empresa.telefone_whatsapp }}" disabled />
+          <div class="form-text">Não dá pra trocar o número por aqui — o WhatsApp já está conectado com ele. Troca de número é um fluxo à parte (em breve); por ora, é preciso excluir a empresa e cadastrar de novo.</div>
+          {% else %}
           <input type="text" name="telefone_whatsapp" class="form-control" required placeholder="5586999999999" value="{{ empresa.telefone_whatsapp if empresa else '' }}" />
-          <div class="form-text">DDI + DDD + número, só dígitos (ex.: 55 86 99999-9999 vira 5586999999999).{% if not empresa %} A instância do WhatsApp é criada e conectada automaticamente para este número ao salvar.{% endif %}</div>
+          <div class="form-text">DDI + DDD + número, só dígitos (ex.: 55 86 99999-9999 vira 5586999999999). A instância do WhatsApp é criada e conectada automaticamente para este número ao salvar.</div>
+          {% endif %}
         </div>
         <div class="col-12 col-lg-6 d-flex align-items-end">
           <div class="form-check form-switch">

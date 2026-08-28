@@ -13,7 +13,7 @@ class Empresa(Base):
     nome = Column(String, nullable=False)
     slug = Column(String, unique=True, nullable=False)
     segmento = Column(String, nullable=False)  # clinica, barbearia, restaurante
-    telefone_whatsapp = Column(String)
+    telefone_whatsapp = Column(String, unique=True)  # só dígitos (DDI+DDD+número) — um número nunca é de duas empresas
     email = Column(String)
     endereco = Column(String)
     descricao = Column(String)
@@ -43,6 +43,11 @@ class Empresa(Base):
     ativo = Column(Boolean, default=True)
     ativado_em = Column(DateTime, nullable=True)
     lembrete_canal_email = Column(Boolean, default=False)
+    # Estado da conexão WhatsApp, atualizado pelo evento connection.update da Evolution
+    # API (POST /webhook) — não é chamada em tempo real, é o último valor que a própria
+    # Evolution avisou. "close"/"connecting"/"open"/"refused"; None = nunca conectou.
+    estado_conexao_whatsapp = Column(String, nullable=True)
+    estado_conexao_atualizado_em = Column(DateTime, nullable=True)
     criado_em = Column(DateTime, default=datetime.utcnow)
 
     servicos = relationship("Servico", back_populates="empresa")

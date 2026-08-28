@@ -23,7 +23,7 @@ def _seed_empresa(main, models, slug: str, nome: str):
             nome=nome,
             slug=slug,
             segmento="clinica",
-            telefone_whatsapp="5511999999990",
+            telefone_whatsapp=f"5511999{sum(ord(c) for c in slug) % 1000000:06d}",
             evolution_instance_name=slug,
             horario_abertura="08:00",
             horario_fechamento="18:00",

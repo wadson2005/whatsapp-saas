@@ -376,11 +376,17 @@ def test_isolamento_multi_tenant_nas_rotas_de_ativar_pausar_e_hub(monkeypatch, t
 
     with TestClient(main.app, base_url="https://testserver") as client:
         client.post("/onboarding", data=_dados_conta(email="dona-a@exemplo.com"))
-        client.post("/admin/empresas/cadastrar", data=_dados_empresa(slug="empresa-a", nome="Empresa A"))
+        client.post(
+            "/admin/empresas/cadastrar",
+            data=_dados_empresa(slug="empresa-a", nome="Empresa A", telefone_whatsapp="5586999999901"),
+        )
         client.get("/admin/logout")
 
         client.post("/onboarding", data=_dados_conta(email="dono-b@exemplo.com"))
-        client.post("/admin/empresas/cadastrar", data=_dados_empresa(slug="empresa-b", nome="Empresa B"))
+        client.post(
+            "/admin/empresas/cadastrar",
+            data=_dados_empresa(slug="empresa-b", nome="Empresa B", telefone_whatsapp="5586999999902"),
+        )
         client.get("/admin/logout")
 
     db = main.SessionLocal()

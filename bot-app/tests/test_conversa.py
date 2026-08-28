@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
 from fastapi.testclient import TestClient
 
 from conftest import WEBHOOK_SECRET, FakeRedis, preparar_ambiente
@@ -45,12 +46,12 @@ def _payload_botao(instance: str, numero: str, botao_id: str, titulo: str) -> di
     }
 
 
-def _criar_empresa_com_agendamento(main, models, telefone: str, instancia: str):
+def _criar_empresa_com_agendamento(main, models, telefone: str, instancia: str, slug: str = "clinica-sorriso-feliz"):
     db = main.SessionLocal()
     try:
         empresa = models.Empresa(
             nome="Clínica Sorriso Feliz",
-            slug="clinica-sorriso-feliz",
+            slug=slug,
             segmento="clinica",
             telefone_whatsapp=telefone,
             evolution_instance_name=instancia,
@@ -91,6 +92,66 @@ def _criar_empresa_com_agendamento(main, models, telefone: str, instancia: str):
         db.refresh(servico)
         db.refresh(agendamento)
         return empresa, servico, agendamento
+    finally:
+        db.close()
+
+
+# --- cada empresa responde só pela própria instância Evolution --------------------
+
+
+def test_cada_empresa_responde_exclusivamente_pela_propria_instancia(monkeypatch, tmp_path):
+    main, conversa, models = carregar_app(monkeypatch, tmp_path)
+    conversa.redis_cliente = FakeRedis()
+    conversa.enviar_botoes = AsyncMock()
+    conversa.enviar_lista = AsyncMock()
+
+    empresa_a, _, _ = _criar_empresa_com_agendamento(main, models, "5586999999901", "instancia-empresa-a", slug="empresa-a")
+    empresa_b, _, _ = _criar_empresa_com_agendamento(main, models, "5586999999902", "instancia-empresa-b", slug="empresa-b")
+
+    with TestClient(main.app, base_url="https://testserver") as client:
+        resposta_a = client.post(
+            f"/webhook?token={WEBHOOK_SECRET}",
+            json=_payload_texto("instancia-empresa-a", "5586999999801", "oibot"),
+        )
+        resposta_b = client.post(
+            f"/webhook?token={WEBHOOK_SECRET}",
+            json=_payload_texto("instancia-empresa-b", "5586999999802", "oibot"),
+        )
+
+    assert resposta_a.status_code == 200
+    assert resposta_b.status_code == 200
+    assert conversa.enviar_lista.await_count == 2
+
+    instancias_usadas = [chamada.kwargs["instance"] for chamada in conversa.enviar_lista.await_args_list]
+    assert instancias_usadas == ["instancia-empresa-a", "instancia-empresa-b"]
+    # nenhuma das duas usou a instância da outra empresa, nem uma global/pessoal
+    assert "instancia-empresa-a" in instancias_usadas
+    assert "instancia-empresa-b" in instancias_usadas
+
+
+def test_empresa_sem_instancia_evolution_falha_de_forma_explicita_ao_responder(monkeypatch, tmp_path):
+    """Nunca cai pra um número/instância global — antes de enviar, tem que existir
+    a instância da própria empresa. Sem ela, o envio real (evolution_client, não
+    mockado neste teste) recusa explicitamente, em vez de mandar por outro canal."""
+    main, conversa, models = carregar_app(monkeypatch, tmp_path)
+    conversa.redis_cliente = FakeRedis()
+    evolution_client = importlib.import_module("integrations.evolution_client")
+
+    empresa, _, _ = _criar_empresa_com_agendamento(main, models, "5586999999903", "instancia-empresa-c")
+    db = main.SessionLocal()
+    try:
+        empresa_db = db.query(models.Empresa).filter_by(id=empresa.id).first()
+        empresa_db.evolution_instance_name = None
+        db.commit()
+        db.refresh(empresa_db)
+    finally:
+        db.close()
+
+    db = main.SessionLocal()
+    try:
+        empresa_sem_instancia = db.query(models.Empresa).filter_by(id=empresa.id).first()
+        with pytest.raises(evolution_client.InstanciaNaoConfiguradaError):
+            asyncio.run(conversa.processar_mensagem(db, empresa_sem_instancia, "5586999999803", "oibot", None))
     finally:
         db.close()
 
