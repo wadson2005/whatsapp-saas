@@ -9,7 +9,7 @@ from ai.models import Intent
 from ai.service import criar_ai_service
 from core.models import Agendamento, ClienteFinal, Empresa, Servico
 from core.redis_client import redis_cliente
-from integrations.evolution_client import enviar_botoes, enviar_lista
+from integrations.evolution_client import enviar_botoes, enviar_texto
 from services.agenda import (
     agendar_servico,
     cancelar_agendamento,
@@ -42,6 +42,7 @@ TEXTO_BOTAO_FALAR_COM_ATENDENTE = "Falar com atendente"
 
 SAUDACOES_FIXAS = ("oi", "ola", "bom dia", "boa tarde", "boa noite")
 PALAVRAS_MENU = ("menu", "voltar", "inicio", "iniciar", "comecar")
+PALAVRAS_SERVICOS = ("ver servicos", "servicos", "agendar", "novo agendamento")
 PALAVRAS_CANCELAMENTO = ("cancelar agendamento", "desmarcar", "cancelar")
 PALAVRAS_REAGENDAMENTO = ("reagendar", "remarcar")
 PALAVRAS_HUMANO = ("atendente", "atendimento humano", "falar com atendente", "falar com humano", "pessoa")
@@ -217,6 +218,35 @@ def _agrupa_slots_por_dia(slots):
     return secoes
 
 
+def _texto_opcoes(secoes: list[dict]) -> str:
+    """Formata opções (mesma estrutura usada antes em `enviar_lista`) como texto simples.
+
+    secoes: [{"titulo": "...", "linhas": [{"titulo": "...", "descricao": "..."}]}].
+    """
+    linhas_formatadas = []
+    for secao in secoes:
+        if secao.get("titulo"):
+            linhas_formatadas.append(f"*{secao['titulo']}*")
+        for linha in secao["linhas"]:
+            descricao = f" — {linha['descricao']}" if linha.get("descricao") else ""
+            linhas_formatadas.append(f"• {linha['titulo']}{descricao}")
+        linhas_formatadas.append("")
+    return "\n".join(linhas_formatadas).rstrip()
+
+
+async def enviar_opcoes_em_texto(empresa: Empresa, numero: str, texto: str, secoes: list[dict], instrucao: str) -> None:
+    """Substitui o antigo `enviar_lista` (quebrado na Evolution API/Baileys atual — ver evolution_client.py).
+
+    O cliente escolhe digitando a resposta; cada fluxo já reconhece o texto
+    (nome do serviço, data/horário, palavra-chave) independente de toque.
+    """
+    await enviar_texto(
+        instance=empresa.evolution_instance_name,
+        numero=_numero_limpo(numero),
+        texto=f"{texto}\n\n{_texto_opcoes(secoes)}\n\n{instrucao}",
+    )
+
+
 async def _mostrar_menu_principal(db, empresa: Empresa, numero: str, contexto: dict | None = None):
     agendamento = _agendamento_do_contexto(db, empresa, numero, contexto or {})
     if agendamento:
@@ -240,13 +270,16 @@ async def _mostrar_menu_principal(db, empresa: Empresa, numero: str, contexto: d
     if empresa.permitir_atendimento_humano:
         atalhos.append({"id": "atendimento:humano", "titulo": TEXTO_BOTAO_FALAR_COM_ATENDENTE, "descricao": "Falar com uma pessoa"})
 
-    await enviar_lista(
-        instance=empresa.evolution_instance_name,
-        numero=_numero_limpo(numero),
-        texto=texto,
-        titulo_botao="Abrir menu",
-        secoes=[{"titulo": "Atalhos rápidos", "linhas": atalhos}],
-        rodape="Você também pode digitar Menu a qualquer momento.",
+    await enviar_opcoes_em_texto(
+        empresa,
+        numero,
+        texto,
+        secoes=[{"titulo": None, "linhas": atalhos}],
+        instrucao=(
+            "Digite o que deseja: \"ver serviços\", \"reagendar\", \"cancelar\""
+            + (" ou \"atendente\"" if empresa.permitir_atendimento_humano else "")
+            + ". Você também pode digitar Menu a qualquer momento."
+        ),
     )
 
 
@@ -476,17 +509,16 @@ async def _mostrar_lista_servicos(db, empresa: Empresa, numero: str):
         }
     ]
 
-    await enviar_lista(
-        instance=empresa.evolution_instance_name,
-        numero=_numero_limpo(numero),
-        texto=_empresa_mensagem(
+    await enviar_opcoes_em_texto(
+        empresa,
+        numero,
+        _empresa_mensagem(
             empresa,
             "mensagem_boas_vindas",
             f"Olá! Bem-vindo(a) à {empresa.nome} 😊\n\nEscolha um serviço para agendar:",
         ),
-        titulo_botao="Ver serviços",
         secoes=secoes,
-        rodape="Toque em uma opção da lista",
+        instrucao="Responda com o nome do serviço desejado.",
     )
 
     salvar_estado(empresa.id, numero, "aguardando_servico", {"servicos_ids": [s.id for s in servicos]}, ttl_segundos=_ttl_contexto(empresa))
@@ -602,16 +634,15 @@ async def _periodo_escolhido(db, empresa: Empresa, numero: str, texto: str, cont
         ttl_segundos=_ttl_contexto(empresa),
     )
 
-    await enviar_lista(
-        instance=empresa.evolution_instance_name,
-        numero=_numero_limpo(numero),
-        texto=(
+    await enviar_opcoes_em_texto(
+        empresa,
+        numero,
+        (
             f"Horários disponíveis para {servico.nome} ({'manhã' if periodo == 'manha' else 'tarde'}).\n"
             "Escolha um horário para concluir o agendamento:"
         ),
-        titulo_botao="Ver horários",
         secoes=_agrupa_slots_por_dia(slots),
-        rodape="Toque no horário desejado",
+        instrucao="Responda com a data e o horário desejado (ex.: 29/07 15:00).",
     )
 
 
@@ -642,13 +673,12 @@ async def _slot_escolhido(db, empresa: Empresa, numero: str, texto: str, context
     if not validacao.ok:
         if validacao.sugestoes:
             salvar_estado(empresa.id, numero, "aguardando_slot", contexto, ttl_segundos=_ttl_contexto(empresa))
-            await enviar_lista(
-                instance=empresa.evolution_instance_name,
-                numero=_numero_limpo(numero),
-                texto=validacao.mensagem,
-                titulo_botao="Ver alternativas",
+            await enviar_opcoes_em_texto(
+                empresa,
+                numero,
+                validacao.mensagem,
                 secoes=_agrupa_slots_por_dia(validacao.sugestoes),
-                rodape="Escolha um horário livre",
+                instrucao="Responda com a data e o horário desejado (ex.: 29/07 15:00).",
             )
         else:
             salvar_estado(empresa.id, numero, "aguardando_periodo", contexto, ttl_segundos=_ttl_contexto(empresa))
@@ -719,13 +749,12 @@ async def _horario_texto_livre(db, empresa: Empresa, numero: str, texto: str, co
     agendamento, validacao = agendar_servico(db, empresa, servico, numero, inicio_em)
     if not validacao.ok:
         if validacao.sugestoes:
-            await enviar_lista(
-                instance=empresa.evolution_instance_name,
-                numero=_numero_limpo(numero),
-                texto=validacao.mensagem,
-                titulo_botao="Ver alternativas",
+            await enviar_opcoes_em_texto(
+                empresa,
+                numero,
+                validacao.mensagem,
                 secoes=_agrupa_slots_por_dia(validacao.sugestoes),
-                rodape="Escolha um horário livre",
+                instrucao="Responda com a data e o horário desejado (ex.: 29/07 15:00).",
             )
         else:
             await enviar_botoes(
@@ -800,16 +829,15 @@ async def _mostrar_slots_reagendamento(db, empresa: Empresa, numero: str, contex
         ttl_segundos=_ttl_contexto(empresa),
     )
 
-    await enviar_lista(
-        instance=empresa.evolution_instance_name,
-        numero=_numero_limpo(numero),
-        texto=(
+    await enviar_opcoes_em_texto(
+        empresa,
+        numero,
+        (
             f"Escolha um novo horário para *{servico.nome}*:\n"
             f"Atual: {formatar_data_hora(agendamento.data_hora)}"
         ),
-        titulo_botao="Ver novos horários",
         secoes=_agrupa_slots_por_dia(slots),
-        rodape="Selecione o novo horário",
+        instrucao="Responda com a data e o horário desejado (ex.: 29/07 15:00).",
     )
 
 
@@ -854,13 +882,12 @@ async def _reagendar_slot_escolhido(db, empresa: Empresa, numero: str, texto: st
                 {"agendamento_id": agendamento.id, "servico_id": agendamento.servico_id, "slots": [slot.id for slot in validacao.sugestoes]},
                 ttl_segundos=_ttl_contexto(empresa),
             )
-            await enviar_lista(
-                instance=empresa.evolution_instance_name,
-                numero=_numero_limpo(numero),
-                texto=validacao.mensagem,
-                titulo_botao="Ver alternativas",
+            await enviar_opcoes_em_texto(
+                empresa,
+                numero,
+                validacao.mensagem,
                 secoes=_agrupa_slots_por_dia(validacao.sugestoes),
-                rodape="Escolha um novo horário livre",
+                instrucao="Responda com a data e o horário desejado (ex.: 29/07 15:00).",
             )
         else:
             await enviar_botoes(
@@ -961,7 +988,7 @@ async def processar_mensagem(db, empresa: Empresa, numero: str, texto: str, id_i
         await _mostrar_menu_principal(db, empresa, numero, {})
         return
 
-    if id_interacao == "menu:servicos":
+    if id_interacao == "menu:servicos" or _texto_corresponde(texto, PALAVRAS_SERVICOS):
         limpar_estado(empresa.id, numero)
         await _mostrar_lista_servicos(db, empresa, numero)
         return

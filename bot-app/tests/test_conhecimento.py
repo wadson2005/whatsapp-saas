@@ -210,7 +210,7 @@ def test_conversa_usa_conhecimento_antes_da_ia(monkeypatch, tmp_path):
     main, models, conhecimento, conversa = carregar_app(monkeypatch, tmp_path)
     conversa.redis_cliente = FakeRedis()
     conversa.enviar_botoes = AsyncMock()
-    conversa.enviar_lista = AsyncMock()
+    conversa.enviar_texto = AsyncMock()
     fake_ia = SimpleNamespace(interpretar=AsyncMock())
     conversa.criar_ai_service = lambda config: fake_ia
 
@@ -242,7 +242,7 @@ def test_conversa_sem_match_aciona_ia_normalmente(monkeypatch, tmp_path):
     main, models, conhecimento, conversa = carregar_app(monkeypatch, tmp_path)
     conversa.redis_cliente = FakeRedis()
     conversa.enviar_botoes = AsyncMock()
-    conversa.enviar_lista = AsyncMock()
+    conversa.enviar_texto = AsyncMock()
 
     ai_models = importlib.import_module("ai.models")
     fake_ia = SimpleNamespace(

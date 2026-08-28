@@ -4,6 +4,11 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ## [Unreleased]
 
+### Corrigido (sendList da Evolution API quebrado — menus de opção passam a ser texto simples)
+
+- **Bug crítico descoberto em verificação pós-deploy em produção**: `enviar_lista` (usado em 7 pontos do fluxo — menu principal, lista de serviços, horários disponíveis, reagendamento) retornava sempre `500` real ao cliente. Causa raiz confirmada chamando `/message/sendList` diretamente contra a Evolution API de produção (fora do nosso código): a própria API rejeita a chamada com `400` e o corpo `{"response":{"message":["TypeError: this.isZero is not a function"]}}` — um bug interno do Baileys ao montar `listMessage` na versão v2.3.6, não um problema no payload que enviamos (`sendButtons` e `sendText`, testados da mesma forma, funcionam normalmente).
+- `enviar_lista` foi removida de `integrations/evolution_client.py` (funcionalidade da Evolution API não utilizável nesta versão) e substituída por `enviar_texto` (`POST /message/sendText`). Em `conversa.py`, os 7 pontos que mostravam listas interativas agora enviam uma mensagem de texto simples com as opções numeradas/marcadas (`_texto_opcoes`/`enviar_opcoes_em_texto`) — a seleção continua funcionando pelo texto digitado pelo cliente (nome do serviço, data/horário, palavra-chave), que cada fluxo já reconhecia como alternativa ao toque na lista. Adicionada a palavra-chave "ver serviços"/"serviços"/"agendar" ao roteador, para cobrir o único atalho do menu principal que antes só existia como item de lista tocável.
+
 ### Corrigido (envio de mensagens migrado de Meta Graph API para Evolution API, por instância)
 
 - **Bug crítico de isolamento multiempresa**: todo envio de resposta de conversa (botões, listas) saía pela Meta Graph API, usando credenciais globais (`ConfiguracaoSistema.meta_token`/`meta_phone_number_id`) — um único número para todas as empresas, sem relação com o número que cada empresa conectou via Evolution API. `conversa.py` agora importa `enviar_botoes`/`enviar_lista` de `integrations/evolution_client.py`, e as ~37 chamadas passam `instance=empresa.evolution_instance_name` explicitamente, sem valor padrão — chamar sem instância é erro de programação imediato, não um fallback silencioso.

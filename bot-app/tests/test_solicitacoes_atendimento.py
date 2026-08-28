@@ -87,7 +87,7 @@ def test_solicitacao_humana_eh_criada_e_confirmada_no_whatsapp(monkeypatch, tmp_
     main, conversa, models, _ = carregar_app(monkeypatch, tmp_path)
     conversa.redis_cliente = FakeRedis()
     conversa.enviar_botoes = AsyncMock()
-    conversa.enviar_lista = AsyncMock()
+    conversa.enviar_texto = AsyncMock()
 
     empresa = _seed_empresa(main, models, "clinica-sorriso-feliz", "Clínica Sorriso Feliz", "5586999999999", "clinica-sorriso-feliz")
 
@@ -117,7 +117,7 @@ def test_solicitacao_humana_nao_duplica_pendente(monkeypatch, tmp_path):
     main, conversa, models, _ = carregar_app(monkeypatch, tmp_path)
     conversa.redis_cliente = FakeRedis()
     conversa.enviar_botoes = AsyncMock()
-    conversa.enviar_lista = AsyncMock()
+    conversa.enviar_texto = AsyncMock()
 
     _seed_empresa(main, models, "clinica-sorriso-feliz", "Clínica Sorriso Feliz", "5586999999998", "clinica-sorriso-feliz")
 

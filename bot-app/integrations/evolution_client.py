@@ -10,9 +10,6 @@ logger = logging.getLogger(__name__)
 TIMEOUT_SEGUNDOS = 15.0
 
 
-MAX_LINHAS_LISTA = 10  # limite de linhas por lista, imposto pelo próprio WhatsApp
-
-
 class EvolutionAPIError(Exception):
     """Levantada quando a Evolution API recusa a chamada (HTTP >= 400)."""
 
@@ -164,49 +161,16 @@ async def enviar_botoes(instance: str, numero: str, texto: str, botoes: list[dic
     return await _requisitar("POST", f"/message/sendButtons/{instance}", json=payload)
 
 
-async def enviar_lista(
-    instance: str,
-    numero: str,
-    texto: str,
-    titulo_botao: str,
-    secoes: list[dict],
-    rodape: str | None = None,
-) -> dict:
-    """Envia uma lista de opções pela instância (número) da própria empresa.
+async def enviar_texto(instance: str, numero: str, texto: str) -> dict:
+    """Envia uma mensagem de texto simples pela instância (número) da própria empresa.
 
     `instance` é sempre obrigatório e explícito — nunca há fallback para outra
-    instância/número. secoes: [{"titulo": "Serviços", "linhas": [{"id": "...", "titulo": "...", "descricao": "..."}]}].
+    instância/número. Usada para menus de opções: a Evolution API v2.3.6 tem
+    um erro interno em `/message/sendList` (`TypeError: this.isZero is not a
+    function`, confirmado em produção contra a API real, não é um problema do
+    nosso payload) — os fluxos que mostram opções escrevem a lista dentro do
+    próprio texto e o cliente responde digitando a escolha.
     """
     _validar_instancia(instance)
-    secoes_limitadas = []
-    linhas_restantes = MAX_LINHAS_LISTA
-
-    for secao in secoes:
-        if linhas_restantes <= 0:
-            break
-
-        linhas = secao.get("linhas", [])[:linhas_restantes]
-        if not linhas:
-            continue
-
-        secoes_limitadas.append({"titulo": secao["titulo"], "linhas": linhas})
-        linhas_restantes -= len(linhas)
-
-    payload = {
-        "number": numero,
-        "title": " ",  # WhatsApp exige um título; o conteúdo de verdade vai em "description"
-        "description": texto,
-        "buttonText": titulo_botao,
-        "footerText": rodape or "",
-        "sections": [
-            {
-                "title": s["titulo"],
-                "rows": [
-                    {"title": l["titulo"], "description": l.get("descricao", ""), "rowId": l["id"]}
-                    for l in s["linhas"]
-                ],
-            }
-            for s in secoes_limitadas
-        ],
-    }
-    return await _requisitar("POST", f"/message/sendList/{instance}", json=payload)
+    payload = {"number": numero, "text": texto}
+    return await _requisitar("POST", f"/message/sendText/{instance}", json=payload)

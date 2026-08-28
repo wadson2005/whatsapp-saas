@@ -103,7 +103,7 @@ def test_cada_empresa_responde_exclusivamente_pela_propria_instancia(monkeypatch
     main, conversa, models = carregar_app(monkeypatch, tmp_path)
     conversa.redis_cliente = FakeRedis()
     conversa.enviar_botoes = AsyncMock()
-    conversa.enviar_lista = AsyncMock()
+    conversa.enviar_texto = AsyncMock()
 
     empresa_a, _, _ = _criar_empresa_com_agendamento(main, models, "5586999999901", "instancia-empresa-a", slug="empresa-a")
     empresa_b, _, _ = _criar_empresa_com_agendamento(main, models, "5586999999902", "instancia-empresa-b", slug="empresa-b")
@@ -120,9 +120,9 @@ def test_cada_empresa_responde_exclusivamente_pela_propria_instancia(monkeypatch
 
     assert resposta_a.status_code == 200
     assert resposta_b.status_code == 200
-    assert conversa.enviar_lista.await_count == 2
+    assert conversa.enviar_texto.await_count == 2
 
-    instancias_usadas = [chamada.kwargs["instance"] for chamada in conversa.enviar_lista.await_args_list]
+    instancias_usadas = [chamada.kwargs["instance"] for chamada in conversa.enviar_texto.await_args_list]
     assert instancias_usadas == ["instancia-empresa-a", "instancia-empresa-b"]
     # nenhuma das duas usou a instância da outra empresa, nem uma global/pessoal
     assert "instancia-empresa-a" in instancias_usadas
@@ -160,7 +160,7 @@ def test_mensagem_desconhecida_mostra_menu_e_atendente(monkeypatch, tmp_path):
     main, conversa, models = carregar_app(monkeypatch, tmp_path)
     conversa.redis_cliente = FakeRedis()
     conversa.enviar_botoes = AsyncMock()
-    conversa.enviar_lista = AsyncMock()
+    conversa.enviar_texto = AsyncMock()
 
     _criar_empresa_com_agendamento(main, models, "5586999999999", "clinica-sorriso-feliz")
 
@@ -171,19 +171,19 @@ def test_mensagem_desconhecida_mostra_menu_e_atendente(monkeypatch, tmp_path):
         )
 
     assert response.status_code == 200
-    assert conversa.enviar_lista.await_count == 1
-    args = conversa.enviar_lista.await_args.kwargs
-    assert "próximo passo" in args["texto"].lower()
-    ids = [linha["id"] for secao in args["secoes"] for linha in secao["linhas"]]
-    assert "menu:servicos" in ids
-    assert "atendimento:humano" in ids
+    assert conversa.enviar_texto.await_count == 1
+    args = conversa.enviar_texto.await_args.kwargs
+    texto = args["texto"].lower()
+    assert "próximo passo" in texto
+    assert "ver serviços" in texto
+    assert "falar com atendente" in texto
 
 
 def test_palavra_de_ativacao_customizada_da_empresa_abre_direto_na_lista_de_servicos(monkeypatch, tmp_path):
     main, conversa, models = carregar_app(monkeypatch, tmp_path)
     conversa.redis_cliente = FakeRedis()
     conversa.enviar_botoes = AsyncMock()
-    conversa.enviar_lista = AsyncMock()
+    conversa.enviar_texto = AsyncMock()
 
     empresa, _, _ = _criar_empresa_com_agendamento(main, models, "5586999999997", "clinica-sorriso-feliz")
     db = main.SessionLocal()
@@ -201,8 +201,8 @@ def test_palavra_de_ativacao_customizada_da_empresa_abre_direto_na_lista_de_serv
         )
 
     assert resposta.status_code == 200
-    assert conversa.enviar_lista.await_count == 1
-    args = conversa.enviar_lista.await_args.kwargs
+    assert conversa.enviar_texto.await_count == 1
+    args = conversa.enviar_texto.await_args.kwargs
     assert "escolha um serviço" in args["texto"].lower()
 
 
@@ -210,7 +210,7 @@ def test_palavra_de_ativacao_padrao_para_de_funcionar_apos_empresa_customizar_a_
     main, conversa, models = carregar_app(monkeypatch, tmp_path)
     conversa.redis_cliente = FakeRedis()
     conversa.enviar_botoes = AsyncMock()
-    conversa.enviar_lista = AsyncMock()
+    conversa.enviar_texto = AsyncMock()
 
     empresa, _, _ = _criar_empresa_com_agendamento(main, models, "5586999999996", "clinica-sorriso-feliz")
     db = main.SessionLocal()
@@ -228,8 +228,8 @@ def test_palavra_de_ativacao_padrao_para_de_funcionar_apos_empresa_customizar_a_
         )
 
     assert resposta.status_code == 200
-    assert conversa.enviar_lista.await_count == 1
-    args = conversa.enviar_lista.await_args.kwargs
+    assert conversa.enviar_texto.await_count == 1
+    args = conversa.enviar_texto.await_args.kwargs
     # "oibot" (palavra global antiga) não é mais gatilho pra essa empresa — cai no menu principal
     assert "próximo passo" in args["texto"].lower()
 
@@ -238,7 +238,7 @@ def test_cancelamento_exige_confirmacao_e_cancela(monkeypatch, tmp_path):
     main, conversa, models = carregar_app(monkeypatch, tmp_path)
     conversa.redis_cliente = FakeRedis()
     conversa.enviar_botoes = AsyncMock()
-    conversa.enviar_lista = AsyncMock()
+    conversa.enviar_texto = AsyncMock()
 
     _, _, agendamento = _criar_empresa_com_agendamento(main, models, "5586999999998", "clinica-sorriso-feliz")
 
@@ -255,7 +255,7 @@ def test_cancelamento_exige_confirmacao_e_cancela(monkeypatch, tmp_path):
         assert any(botao["id"] == "cancelamento:confirmar" for botao in botoes)
 
         conversa.enviar_botoes.reset_mock()
-        conversa.enviar_lista.reset_mock()
+        conversa.enviar_texto.reset_mock()
 
         resposta_confirmar = client.post(
             f"/webhook?token={WEBHOOK_SECRET}",
@@ -286,7 +286,7 @@ def test_estado_inesperado_recebe_fallback_e_nao_quebra_o_contexto(monkeypatch, 
     main, conversa, models = carregar_app(monkeypatch, tmp_path)
     conversa.redis_cliente = FakeRedis()
     conversa.enviar_botoes = AsyncMock()
-    conversa.enviar_lista = AsyncMock()
+    conversa.enviar_texto = AsyncMock()
 
     empresa, _, _ = _criar_empresa_com_agendamento(main, models, "5586999999997", "clinica-sorriso-feliz")
     conversa.redis_cliente.set(
@@ -312,7 +312,7 @@ def test_ia_interpreta_cancelamento_quando_fora_das_palavras_chave(monkeypatch, 
     main, conversa, models = carregar_app(monkeypatch, tmp_path)
     conversa.redis_cliente = FakeRedis()
     conversa.enviar_botoes = AsyncMock()
-    conversa.enviar_lista = AsyncMock()
+    conversa.enviar_texto = AsyncMock()
 
     ai_models = importlib.import_module("ai.models")
     empresa, _, agendamento = _criar_empresa_com_agendamento(main, models, "5586999999996", "clinica-sorriso-feliz")
@@ -360,7 +360,7 @@ def test_ia_desconhecida_mantem_fallback_padrao(monkeypatch, tmp_path):
     main, conversa, models = carregar_app(monkeypatch, tmp_path)
     conversa.redis_cliente = FakeRedis()
     conversa.enviar_botoes = AsyncMock()
-    conversa.enviar_lista = AsyncMock()
+    conversa.enviar_texto = AsyncMock()
 
     ai_models = importlib.import_module("ai.models")
     empresa, _, agendamento = _criar_empresa_com_agendamento(main, models, "5586999999995", "clinica-sorriso-feliz")
@@ -404,7 +404,7 @@ def test_configuracao_pelo_painel_ativa_ia_sem_reiniciar_processo(monkeypatch, t
     main, conversa, models = carregar_app(monkeypatch, tmp_path)
     conversa.redis_cliente = FakeRedis()
     conversa.enviar_botoes = AsyncMock()
-    conversa.enviar_lista = AsyncMock()
+    conversa.enviar_texto = AsyncMock()
 
     ai_provider_module = importlib.import_module("ai.provider")
     ai_cache_module = importlib.import_module("ai.cache")

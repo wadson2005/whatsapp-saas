@@ -141,7 +141,7 @@ def test_qrcode_para_json_com_none_vira_null(monkeypatch, tmp_path):
     assert evolution_client.qrcode_para_json(None) == "null"
 
 
-# --- enviar_botoes / enviar_lista: cada empresa responde pela própria instância ----
+# --- enviar_botoes / enviar_texto: cada empresa responde pela própria instância ----
 
 
 def test_enviar_botoes_usa_a_instancia_informada_na_url(monkeypatch, tmp_path):
@@ -208,7 +208,10 @@ def test_enviar_botoes_sem_instancia_recusa_o_envio(monkeypatch, tmp_path):
     assert cliente_falso.chamadas == []  # nunca chega a chamar a Evolution API
 
 
-def test_enviar_lista_usa_a_instancia_informada_na_url_e_monta_secoes(monkeypatch, tmp_path):
+def test_enviar_texto_usa_a_instancia_informada_na_url(monkeypatch, tmp_path):
+    """enviar_texto substitui o antigo enviar_lista (sendList), que quebra na
+    Evolution API v2.3.6/Baileys com um erro interno ('this.isZero is not a
+    function'), confirmado direto contra a API real em produção."""
     evolution_client = carregar_modulo(monkeypatch, tmp_path)
     cliente_falso = _instalar_cliente_falso(
         monkeypatch,
@@ -219,63 +222,28 @@ def test_enviar_lista_usa_a_instancia_informada_na_url_e_monta_secoes(monkeypatc
     import asyncio
 
     asyncio.run(
-        evolution_client.enviar_lista(
+        evolution_client.enviar_texto(
             instance="clinica-b",
             numero="5511900000002",
-            texto="Escolha um serviço",
-            titulo_botao="Ver serviços",
-            secoes=[{"titulo": "Serviços", "linhas": [{"id": "servico:1", "titulo": "Corte", "descricao": "R$ 50"}]}],
-            rodape="Toque numa opção",
+            texto="Escolha um serviço\n\n• Corte — R$ 50",
         )
     )
 
     method, url, kwargs = cliente_falso.chamadas[0]
     assert method == "POST"
-    assert url.endswith("/message/sendList/clinica-b")
+    assert url.endswith("/message/sendText/clinica-b")
     payload = kwargs["json"]
     assert payload["number"] == "5511900000002"
-    assert payload["description"] == "Escolha um serviço"
-    assert payload["buttonText"] == "Ver serviços"
-    assert payload["footerText"] == "Toque numa opção"
-    assert payload["sections"] == [
-        {"title": "Serviços", "rows": [{"title": "Corte", "description": "R$ 50", "rowId": "servico:1"}]}
-    ]
+    assert payload["text"] == "Escolha um serviço\n\n• Corte — R$ 50"
 
 
-def test_enviar_lista_limita_a_10_linhas_no_total(monkeypatch, tmp_path):
-    evolution_client = carregar_modulo(monkeypatch, tmp_path)
-    cliente_falso = _instalar_cliente_falso(
-        monkeypatch,
-        evolution_client,
-        _ClienteFalso(_RespostaFalsa(201, {})),
-    )
-
-    import asyncio
-
-    secoes = [
-        {"titulo": "A", "linhas": [{"id": f"a{i}", "titulo": f"A{i}"} for i in range(6)]},
-        {"titulo": "B", "linhas": [{"id": f"b{i}", "titulo": f"B{i}"} for i in range(6)]},
-    ]
-    asyncio.run(
-        evolution_client.enviar_lista(
-            instance="clinica-a", numero="5511900000001", texto="x", titulo_botao="Ver", secoes=secoes
-        )
-    )
-
-    _, _, kwargs = cliente_falso.chamadas[0]
-    total_linhas = sum(len(s["rows"]) for s in kwargs["json"]["sections"])
-    assert total_linhas == 10
-
-
-def test_enviar_lista_sem_instancia_recusa_o_envio(monkeypatch, tmp_path):
+def test_enviar_texto_sem_instancia_recusa_o_envio(monkeypatch, tmp_path):
     evolution_client = carregar_modulo(monkeypatch, tmp_path)
     cliente_falso = _instalar_cliente_falso(monkeypatch, evolution_client, _ClienteFalso())
 
     import asyncio
 
     with pytest.raises(evolution_client.InstanciaNaoConfiguradaError):
-        asyncio.run(
-            evolution_client.enviar_lista(instance=None, numero="5511900000001", texto="x", titulo_botao="Ver", secoes=[])
-        )
+        asyncio.run(evolution_client.enviar_texto(instance=None, numero="5511900000001", texto="x"))
 
     assert cliente_falso.chamadas == []
