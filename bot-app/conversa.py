@@ -49,6 +49,12 @@ PALAVRAS_HUMANO = ("atendente", "atendimento humano", "falar com atendente", "fa
 PALAVRAS_CONFIRMACAO = ("sim", "confirmar", "pode cancelar")
 PALAVRAS_NEGACAO = ("nao", "não", "manter", "voltar")
 
+# Chaves reservadas no `contexto` do estado da conversa (Redis) para o mapeamento
+# número -> opção da última mensagem de opções enviada nesse passo. Ver
+# `enviar_opcoes_em_texto` e `_resolver_selecao_numerica`.
+CHAVE_OPCOES = "_opcoes"
+CHAVE_OPCOES_TEXTO = "_opcoes_texto"
+
 
 def _numero_limpo(numero: str) -> str:
     return numero.split("@")[0]
@@ -218,32 +224,115 @@ def _agrupa_slots_por_dia(slots):
     return secoes
 
 
-def _texto_opcoes(secoes: list[dict]) -> str:
-    """Formata opções (mesma estrutura usada antes em `enviar_lista`) como texto simples.
+def _numerar_opcoes(secoes: list[dict]) -> tuple[list[str], str]:
+    """Numera sequencialmente todas as linhas das seções (1, 2, 3...), na ordem em
+    que aparecem na mensagem — mesma estrutura usada antes em `enviar_lista`:
+    secoes: [{"titulo": "...", "linhas": [{"id": "...", "titulo": "...", "descricao": "..."}]}].
 
-    secoes: [{"titulo": "...", "linhas": [{"titulo": "...", "descricao": "..."}]}].
+    Retorna (ids_em_ordem, texto_formatado). `ids_em_ordem[i]` é a opção que o
+    número `i + 1` representa — é essa lista, guardada no estado da conversa por
+    `enviar_opcoes_em_texto`, que permite ao cliente responder só com o número.
     """
+    ids: list[str] = []
     linhas_formatadas = []
+    numero = 1
     for secao in secoes:
         if secao.get("titulo"):
             linhas_formatadas.append(f"*{secao['titulo']}*")
         for linha in secao["linhas"]:
             descricao = f" — {linha['descricao']}" if linha.get("descricao") else ""
-            linhas_formatadas.append(f"• {linha['titulo']}{descricao}")
+            linhas_formatadas.append(f"{numero}. {linha['titulo']}{descricao}")
+            ids.append(linha["id"])
+            numero += 1
         linhas_formatadas.append("")
-    return "\n".join(linhas_formatadas).rstrip()
+    return ids, "\n".join(linhas_formatadas).rstrip()
 
 
-async def enviar_opcoes_em_texto(empresa: Empresa, numero: str, texto: str, secoes: list[dict], instrucao: str) -> None:
-    """Substitui o antigo `enviar_lista` (quebrado na Evolution API/Baileys atual — ver evolution_client.py).
-
-    O cliente escolhe digitando a resposta; cada fluxo já reconhece o texto
+async def enviar_opcoes_em_texto(
+    empresa: Empresa,
+    numero: str,
+    texto: str,
+    secoes: list[dict],
+    instrucao: str,
+    passo: str,
+    contexto: dict | None = None,
+    ttl_segundos: int | None = None,
+) -> None:
+    """Mostra uma lista de opções numeradas e grava, no mesmo passo, o mapeamento
+    número -> opção (`CHAVE_OPCOES`) usado por `_resolver_selecao_numerica` na
+    próxima mensagem do cliente. Substitui o antigo `enviar_lista` (quebrado na
+    Evolution API/Baileys atual — ver evolution_client.py): o cliente escolhe
+    digitando o número OU o texto da opção — cada fluxo já reconhece o texto
     (nome do serviço, data/horário, palavra-chave) independente de toque.
+
+    Centraliza envio + persistência do estado porque as duas coisas sempre andam
+    juntas aqui: não faz sentido mostrar opções numeradas sem guardar o que cada
+    número significa, então nenhum call site precisa lembrar de fazer os dois
+    passos separadamente (nem arrisca gravar um mapeamento desatualizado).
     """
+    ids, texto_numerado = _numerar_opcoes(secoes)
     await enviar_texto(
         instance=empresa.evolution_instance_name,
         numero=_numero_limpo(numero),
-        texto=f"{texto}\n\n{_texto_opcoes(secoes)}\n\n{instrucao}",
+        texto=f"{texto}\n\n{texto_numerado}\n\n{instrucao}",
+    )
+    salvar_estado(
+        empresa.id,
+        numero,
+        passo,
+        {**(contexto or {}), CHAVE_OPCOES: ids, CHAVE_OPCOES_TEXTO: texto_numerado},
+        ttl_segundos=ttl_segundos,
+    )
+
+
+def _resolver_selecao_numerica(texto: str, contexto: dict) -> tuple[str | None, bool]:
+    """Resolve uma resposta como "1", "2"... para o id da opção correspondente,
+    usando o mapeamento salvo pela última mensagem de opções enviada *nesse
+    passo* (`contexto[CHAVE_OPCOES]`) — por isso a seleção numérica depende
+    sempre do estado atual: "1" no menu principal e "1" na lista de horários
+    resolvem para ids completamente diferentes, cada um só válido enquanto o
+    passo que o originou continuar ativo.
+
+    Retorna (id_resolvido, era_numero). `era_numero=True` com `id_resolvido=None`
+    indica um número fora do intervalo mostrado — o chamador deve avisar sobre a
+    opção inválida em vez de cair no fallback genérico ou na IA. Se a mensagem
+    não for um número, ou não houver opções numeradas ativas neste passo,
+    `era_numero=False` e o fluxo de texto normal (nome, data/hora, palavra-chave)
+    continua funcionando sem nenhuma interferência.
+    """
+    texto_limpo = texto.strip()
+    # isdecimal() (não isdigit()): isdigit() também é True pra caracteres como "²"
+    # ou "½", que int() não consegue converter — levaria a um ValueError não
+    # tratado aqui dentro e derrubaria o webhook inteiro com 500 (o mesmo tipo de
+    # incidente que motivou trocar o enviar_lista). isdecimal() é o subconjunto
+    # que int() sempre converte com segurança, incluindo dígitos não-ASCII
+    # (ex.: "１" largura-total, "٥" indo-arábico) sem essa armadilha.
+    if not texto_limpo.isdecimal():
+        return None, False
+
+    opcoes = contexto.get(CHAVE_OPCOES) or []
+    if not opcoes:
+        return None, False
+
+    indice = int(texto_limpo) - 1
+    if 0 <= indice < len(opcoes):
+        return opcoes[indice], True
+    return None, True
+
+
+async def _avisar_opcao_invalida(empresa: Empresa, numero: str, contexto: dict) -> None:
+    """Reapresenta as opções válidas quando o cliente responde com um número fora
+    do intervalo mostrado — sem avançar nem perder o passo/contexto da conversa.
+    """
+    total = len(contexto.get(CHAVE_OPCOES) or [])
+    opcoes_texto = contexto.get(CHAVE_OPCOES_TEXTO, "")
+    await enviar_texto(
+        instance=empresa.evolution_instance_name,
+        numero=_numero_limpo(numero),
+        texto=(
+            f"Não encontrei essa opção. Escolha um número de 1 a {total}, "
+            f"ou digite o texto correspondente:\n\n{opcoes_texto}"
+        ),
     )
 
 
@@ -276,10 +365,13 @@ async def _mostrar_menu_principal(db, empresa: Empresa, numero: str, contexto: d
         texto,
         secoes=[{"titulo": None, "linhas": atalhos}],
         instrucao=(
-            "Digite o que deseja: \"ver serviços\", \"reagendar\", \"cancelar\""
+            "Digite o número da opção, ou \"ver serviços\", \"reagendar\", \"cancelar\""
             + (" ou \"atendente\"" if empresa.permitir_atendimento_humano else "")
             + ". Você também pode digitar Menu a qualquer momento."
         ),
+        passo="menu_principal",
+        contexto={"agendamento_id": agendamento.id} if agendamento else {},
+        ttl_segundos=_ttl_contexto(empresa),
     )
 
 
@@ -518,10 +610,11 @@ async def _mostrar_lista_servicos(db, empresa: Empresa, numero: str):
             f"Olá! Bem-vindo(a) à {empresa.nome} 😊\n\nEscolha um serviço para agendar:",
         ),
         secoes=secoes,
-        instrucao="Responda com o nome do serviço desejado.",
+        instrucao="Responda com o número ou o nome do serviço desejado.",
+        passo="aguardando_servico",
+        contexto={"servicos_ids": [s.id for s in servicos]},
+        ttl_segundos=_ttl_contexto(empresa),
     )
-
-    salvar_estado(empresa.id, numero, "aguardando_servico", {"servicos_ids": [s.id for s in servicos]}, ttl_segundos=_ttl_contexto(empresa))
 
 
 async def _servico_escolhido(db, empresa: Empresa, numero: str, texto: str, contexto: dict, id_interacao: str | None):
@@ -625,15 +718,6 @@ async def _periodo_escolhido(db, empresa: Empresa, numero: str, texto: str, cont
         )
         return
 
-    slots_map = [slot.id for slot in slots]
-    salvar_estado(
-        empresa.id,
-        numero,
-        "aguardando_slot",
-        {"servico_id": servico.id, "periodo": periodo, "slots": slots_map},
-        ttl_segundos=_ttl_contexto(empresa),
-    )
-
     await enviar_opcoes_em_texto(
         empresa,
         numero,
@@ -642,7 +726,10 @@ async def _periodo_escolhido(db, empresa: Empresa, numero: str, texto: str, cont
             "Escolha um horário para concluir o agendamento:"
         ),
         secoes=_agrupa_slots_por_dia(slots),
-        instrucao="Responda com a data e o horário desejado (ex.: 29/07 15:00).",
+        instrucao="Responda com o número ou a data e o horário desejado (ex.: 29/07 15:00).",
+        passo="aguardando_slot",
+        contexto={"servico_id": servico.id, "periodo": periodo},
+        ttl_segundos=_ttl_contexto(empresa),
     )
 
 
@@ -672,16 +759,28 @@ async def _slot_escolhido(db, empresa: Empresa, numero: str, texto: str, context
 
     if not validacao.ok:
         if validacao.sugestoes:
-            salvar_estado(empresa.id, numero, "aguardando_slot", contexto, ttl_segundos=_ttl_contexto(empresa))
             await enviar_opcoes_em_texto(
                 empresa,
                 numero,
                 validacao.mensagem,
                 secoes=_agrupa_slots_por_dia(validacao.sugestoes),
-                instrucao="Responda com a data e o horário desejado (ex.: 29/07 15:00).",
+                instrucao="Responda com o número ou a data e o horário desejado (ex.: 29/07 15:00).",
+                passo="aguardando_slot",
+                contexto={"servico_id": contexto.get("servico_id"), "periodo": contexto.get("periodo")},
+                ttl_segundos=_ttl_contexto(empresa),
             )
         else:
-            salvar_estado(empresa.id, numero, "aguardando_periodo", contexto, ttl_segundos=_ttl_contexto(empresa))
+            # Não reaproveita `contexto` inteiro: ele ainda carrega o CHAVE_OPCOES da
+            # lista de horários que acabou de falhar, e "aguardando_periodo" usa
+            # botões (sem seleção numérica) — levar esse mapeamento adiante deixaria
+            # uma resposta numérica antiga sendo resolvida num passo que não a mostrou.
+            salvar_estado(
+                empresa.id,
+                numero,
+                "aguardando_periodo",
+                {"servico_id": contexto.get("servico_id")},
+                ttl_segundos=_ttl_contexto(empresa),
+            )
             await enviar_botoes(
                 instance=empresa.evolution_instance_name,
                 numero=_numero_limpo(numero),
@@ -749,12 +848,18 @@ async def _horario_texto_livre(db, empresa: Empresa, numero: str, texto: str, co
     agendamento, validacao = agendar_servico(db, empresa, servico, numero, inicio_em)
     if not validacao.ok:
         if validacao.sugestoes:
+            # Volta a conversa para "aguardando_slot" (em vez de continuar em
+            # "aguardando_horario_texto"): as sugestões viram opções numeradas de
+            # verdade, selecionáveis por número — mesmo tratamento de _slot_escolhido.
             await enviar_opcoes_em_texto(
                 empresa,
                 numero,
                 validacao.mensagem,
                 secoes=_agrupa_slots_por_dia(validacao.sugestoes),
-                instrucao="Responda com a data e o horário desejado (ex.: 29/07 15:00).",
+                instrucao="Responda com o número ou a data e o horário desejado (ex.: 29/07 15:00).",
+                passo="aguardando_slot",
+                contexto={"servico_id": servico.id},
+                ttl_segundos=_ttl_contexto(empresa),
             )
         else:
             await enviar_botoes(
@@ -821,14 +926,6 @@ async def _mostrar_slots_reagendamento(db, empresa: Empresa, numero: str, contex
         )
         return
 
-    salvar_estado(
-        empresa.id,
-        numero,
-        "aguardando_reagendamento_slot",
-        {"agendamento_id": agendamento.id, "servico_id": servico.id, "slots": [slot.id for slot in slots]},
-        ttl_segundos=_ttl_contexto(empresa),
-    )
-
     await enviar_opcoes_em_texto(
         empresa,
         numero,
@@ -837,7 +934,10 @@ async def _mostrar_slots_reagendamento(db, empresa: Empresa, numero: str, contex
             f"Atual: {formatar_data_hora(agendamento.data_hora)}"
         ),
         secoes=_agrupa_slots_por_dia(slots),
-        instrucao="Responda com a data e o horário desejado (ex.: 29/07 15:00).",
+        instrucao="Responda com o número ou a data e o horário desejado (ex.: 29/07 15:00).",
+        passo="aguardando_reagendamento_slot",
+        contexto={"agendamento_id": agendamento.id, "servico_id": servico.id},
+        ttl_segundos=_ttl_contexto(empresa),
     )
 
 
@@ -875,19 +975,15 @@ async def _reagendar_slot_escolhido(db, empresa: Empresa, numero: str, texto: st
     novo_agendamento, validacao = reagendar_agendamento(db, empresa, agendamento, inicio_em)
     if not validacao.ok:
         if validacao.sugestoes:
-            salvar_estado(
-                empresa.id,
-                numero,
-                "aguardando_reagendamento_slot",
-                {"agendamento_id": agendamento.id, "servico_id": agendamento.servico_id, "slots": [slot.id for slot in validacao.sugestoes]},
-                ttl_segundos=_ttl_contexto(empresa),
-            )
             await enviar_opcoes_em_texto(
                 empresa,
                 numero,
                 validacao.mensagem,
                 secoes=_agrupa_slots_por_dia(validacao.sugestoes),
-                instrucao="Responda com a data e o horário desejado (ex.: 29/07 15:00).",
+                instrucao="Responda com o número ou a data e o horário desejado (ex.: 29/07 15:00).",
+                passo="aguardando_reagendamento_slot",
+                contexto={"agendamento_id": agendamento.id, "servico_id": agendamento.servico_id},
+                ttl_segundos=_ttl_contexto(empresa),
             )
         else:
             await enviar_botoes(
@@ -982,6 +1078,19 @@ async def processar_mensagem(db, empresa: Empresa, numero: str, texto: str, id_i
         registrar_conversa_iniciada(db, empresa.id, _numero_limpo(numero))
     texto_lower = normalizar_texto(texto)
     logger.debug("Passo atual: %s | texto normalizado: %r", passo, texto_lower)
+
+    # Seleção por número é resolvida uma única vez aqui, para qualquer passo:
+    # traduz "1"/"2"/... para o id da opção mostrada por último (ver
+    # `enviar_opcoes_em_texto`) e segue o fluxo normal como se fosse um toque
+    # real na opção. Só entra em jogo quando a mensagem não veio de um toque de
+    # verdade (id_interacao já preenchido tem sempre prioridade).
+    if id_interacao is None:
+        id_opcao, era_numero = _resolver_selecao_numerica(texto, contexto)
+        if era_numero and id_opcao is None:
+            await _avisar_opcao_invalida(empresa, numero, contexto)
+            return
+        if id_opcao is not None:
+            id_interacao = id_opcao
 
     if _texto_corresponde(texto, PALAVRAS_MENU) or id_interacao == "menu":
         limpar_estado(empresa.id, numero)

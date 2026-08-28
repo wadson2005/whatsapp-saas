@@ -459,3 +459,376 @@ def test_configuracao_pelo_painel_ativa_ia_sem_reiniciar_processo(monkeypatch, t
 
     assert response.status_code == 200
     assert len(chamadas) == 1, "a IA deveria ter sido chamada de verdade, refletindo a configuração salva no painel"
+
+
+# --- seleção numérica de opções (substitui a necessidade de tocar numa lista) ----
+
+
+def test_resolver_selecao_numerica_casos_basicos(monkeypatch, tmp_path):
+    main, conversa, models = carregar_app(monkeypatch, tmp_path)
+
+    # número válido -> resolve pro id correspondente
+    assert conversa._resolver_selecao_numerica("2", {"_opcoes": ["a", "b", "c"]}) == ("b", True)
+    # texto (não-número) -> não interfere, segue o reconhecimento textual normal
+    assert conversa._resolver_selecao_numerica("b", {"_opcoes": ["a", "b", "c"]}) == (None, False)
+    # número fora do intervalo mostrado -> inválido, mas sinalizado pra avisar o cliente
+    assert conversa._resolver_selecao_numerica("9", {"_opcoes": ["a", "b", "c"]}) == (None, True)
+    # mesmo número, contexto sem opções ativas (passo diferente) -> não é tratado como seleção
+    assert conversa._resolver_selecao_numerica("2", {}) == (None, False)
+
+
+def test_resolver_selecao_numerica_normaliza_espacos_e_zeros_a_esquerda(monkeypatch, tmp_path):
+    main, conversa, models = carregar_app(monkeypatch, tmp_path)
+    contexto = {"_opcoes": ["a", "b", "c"]}
+
+    # variações razoáveis do mesmo número continuam resolvendo pra mesma opção
+    for entrada in ["1", " 1 ", "01", " 01 ", "  1"]:
+        assert conversa._resolver_selecao_numerica(entrada, contexto) == ("a", True), entrada
+
+    # formatos que NÃO devem ser tratados como seleção numérica (seguem pro
+    # reconhecimento textual normal, sem o aviso de "opção inválida")
+    for entrada in ["1.", "opção 1", "+1", "-1", "1 2"]:
+        assert conversa._resolver_selecao_numerica(entrada, contexto) == (None, False), entrada
+
+
+def test_resolver_selecao_numerica_nao_quebra_com_digito_unicode_nao_decimal(monkeypatch, tmp_path):
+    """Regressão: str.isdigit() é True para caracteres como '²' (superscript) ou
+    '½' (fração), mas int() não consegue convertê-los — um ValueError não tratado
+    aqui derrubaria o webhook inteiro com 500 se um cliente mandasse um desses
+    caracteres (o mesmo tipo de incidente que motivou trocar o enviar_lista)."""
+    main, conversa, models = carregar_app(monkeypatch, tmp_path)
+    contexto = {"_opcoes": ["a", "b", "c"]}
+
+    assert conversa._resolver_selecao_numerica("²", contexto) == (None, False)
+    assert conversa._resolver_selecao_numerica("½", contexto) == (None, False)
+
+
+def test_resolver_selecao_numerica_com_lista_grande_multiplos_digitos(monkeypatch, tmp_path):
+    main, conversa, models = carregar_app(monkeypatch, tmp_path)
+    opcoes = [f"item:{i}" for i in range(1, 31)]  # 30 opções
+    contexto = {"_opcoes": opcoes}
+
+    assert conversa._resolver_selecao_numerica("9", contexto) == ("item:9", True)
+    assert conversa._resolver_selecao_numerica("10", contexto) == ("item:10", True)
+    assert conversa._resolver_selecao_numerica("11", contexto) == ("item:11", True)
+    assert conversa._resolver_selecao_numerica("20", contexto) == ("item:20", True)
+    assert conversa._resolver_selecao_numerica("30", contexto) == ("item:30", True)
+    assert conversa._resolver_selecao_numerica("31", contexto) == (None, True)  # fora do intervalo
+    assert conversa._resolver_selecao_numerica("0", contexto) == (None, True)
+
+
+def test_menu_principal_permite_selecionar_por_numero(monkeypatch, tmp_path):
+    main, conversa, models = carregar_app(monkeypatch, tmp_path)
+    conversa.redis_cliente = FakeRedis()
+    conversa.enviar_botoes = AsyncMock()
+    conversa.enviar_texto = AsyncMock()
+
+    empresa, _, _ = _criar_empresa_com_agendamento(main, models, "5586977770010", "clinica-menu-numero")
+    numero_cliente = "5586977779910"  # cliente sem agendamento prévio -> menu genérico
+
+    with TestClient(main.app, base_url="https://testserver") as client:
+        resposta_menu = client.post(
+            f"/webhook?token={WEBHOOK_SECRET}",
+            json=_payload_texto("clinica-menu-numero", numero_cliente, "preciso de ajuda"),
+        )
+        assert resposta_menu.status_code == 200
+        texto_menu = conversa.enviar_texto.await_args.kwargs["texto"]
+        assert "1. Ver serviços" in texto_menu
+        assert "Digite o número da opção" in texto_menu
+
+        estado_menu = conversa.obter_estado(empresa.id, numero_cliente)
+        assert estado_menu["passo"] == "menu_principal"
+        # o número 1 tem que representar exatamente a primeira opção exibida
+        assert estado_menu["contexto"]["_opcoes"][0] == "menu:servicos"
+
+        conversa.enviar_texto.reset_mock()
+        resposta_numero = client.post(
+            f"/webhook?token={WEBHOOK_SECRET}",
+            json=_payload_texto("clinica-menu-numero", numero_cliente, "1"),
+        )
+
+    assert resposta_numero.status_code == 200
+    assert conversa.enviar_texto.await_count == 1
+    assert "escolha um serviço" in conversa.enviar_texto.await_args.kwargs["texto"].lower()
+    assert conversa.obter_estado(empresa.id, numero_cliente)["passo"] == "aguardando_servico"
+
+
+def test_numero_fora_do_intervalo_mantem_contexto_e_depois_aceita_numero_valido(monkeypatch, tmp_path):
+    main, conversa, models = carregar_app(monkeypatch, tmp_path)
+    conversa.redis_cliente = FakeRedis()
+    conversa.enviar_botoes = AsyncMock()
+    conversa.enviar_texto = AsyncMock()
+
+    empresa, _, _ = _criar_empresa_com_agendamento(main, models, "5586977770011", "clinica-menu-invalido")
+    numero_cliente = "5586977779911"
+
+    with TestClient(main.app, base_url="https://testserver") as client:
+        client.post(f"/webhook?token={WEBHOOK_SECRET}", json=_payload_texto("clinica-menu-invalido", numero_cliente, "preciso de ajuda"))
+        estado_antes = conversa.obter_estado(empresa.id, numero_cliente)
+
+        conversa.enviar_texto.reset_mock()
+        resposta_invalida = client.post(
+            f"/webhook?token={WEBHOOK_SECRET}",
+            json=_payload_texto("clinica-menu-invalido", numero_cliente, "99"),
+        )
+
+        assert resposta_invalida.status_code == 200
+        assert conversa.enviar_texto.await_count == 1
+        texto_invalido = conversa.enviar_texto.await_args.kwargs["texto"].lower()
+        assert "não encontrei essa opção" in texto_invalido
+        assert "1 a 4" in texto_invalido  # 4 atalhos: serviços, reagendar, cancelar, atendente
+
+        # nem avançou de passo, nem perdeu o mapeamento número -> opção
+        estado_depois = conversa.obter_estado(empresa.id, numero_cliente)
+        assert estado_depois == estado_antes
+
+        conversa.enviar_texto.reset_mock()
+        resposta_valida = client.post(
+            f"/webhook?token={WEBHOOK_SECRET}",
+            json=_payload_texto("clinica-menu-invalido", numero_cliente, "1"),
+        )
+
+    assert resposta_valida.status_code == 200
+    assert conversa.obter_estado(empresa.id, numero_cliente)["passo"] == "aguardando_servico"
+
+
+def _substituir_servicos(main, models, empresa_id: int) -> dict[str, int]:
+    """Troca os serviços da empresa por Corte/Barba/Corte + Barba, nessa ordem
+    (ordem_exibicao explícita), pra reproduzir o exemplo do critério de sucesso."""
+    db = main.SessionLocal()
+    try:
+        db.query(models.Servico).filter_by(empresa_id=empresa_id).delete()
+        nomes = [("Corte", 30, 50.0), ("Barba", 20, 30.0), ("Corte + Barba", 45, 70.0)]
+        ids = {}
+        for ordem, (nome, duracao, preco) in enumerate(nomes, start=1):
+            servico = models.Servico(
+                empresa_id=empresa_id, nome=nome, duracao_minutos=duracao, preco=preco,
+                ordem_exibicao=ordem, ativo=True,
+            )
+            db.add(servico)
+            db.flush()
+            ids[nome] = servico.id
+        db.commit()
+        return ids
+    finally:
+        db.close()
+
+
+def test_selecao_de_servico_por_numero_e_por_texto(monkeypatch, tmp_path):
+    main, conversa, models = carregar_app(monkeypatch, tmp_path)
+    conversa.redis_cliente = FakeRedis()
+    conversa.enviar_botoes = AsyncMock()
+    conversa.enviar_texto = AsyncMock()
+
+    empresa, _, _ = _criar_empresa_com_agendamento(main, models, "5586977770012", "clinica-servicos-numero")
+    ids_servicos = _substituir_servicos(main, models, empresa.id)
+
+    with TestClient(main.app, base_url="https://testserver") as client:
+        # cliente 1: escolhe o serviço "2" (Barba) por número
+        numero_1 = "5586977779912"
+        client.post(f"/webhook?token={WEBHOOK_SECRET}", json=_payload_texto("clinica-servicos-numero", numero_1, "ver serviços"))
+        conversa.enviar_botoes.reset_mock()
+        client.post(f"/webhook?token={WEBHOOK_SECRET}", json=_payload_texto("clinica-servicos-numero", numero_1, "2"))
+
+        assert "Barba" in conversa.enviar_botoes.await_args.kwargs["texto"]
+        estado_1 = conversa.obter_estado(empresa.id, numero_1)
+        assert estado_1["passo"] == "aguardando_periodo"
+        assert estado_1["contexto"]["servico_id"] == ids_servicos["Barba"]
+
+        # cliente 2: escolhe o mesmo serviço digitando o nome -> reconhecimento textual preservado
+        numero_2 = "5586977779913"
+        client.post(f"/webhook?token={WEBHOOK_SECRET}", json=_payload_texto("clinica-servicos-numero", numero_2, "ver serviços"))
+        conversa.enviar_botoes.reset_mock()
+        client.post(f"/webhook?token={WEBHOOK_SECRET}", json=_payload_texto("clinica-servicos-numero", numero_2, "Barba"))
+
+    estado_2 = conversa.obter_estado(empresa.id, numero_2)
+    assert estado_2["passo"] == "aguardando_periodo"
+    assert estado_2["contexto"]["servico_id"] == ids_servicos["Barba"]
+
+
+def test_selecao_de_horario_por_numero_agenda_o_slot_correto(monkeypatch, tmp_path):
+    """Reproduz o critério de sucesso: menu -> serviço -> horário, tudo por número."""
+    main, conversa, models = carregar_app(monkeypatch, tmp_path)
+    conversa.redis_cliente = FakeRedis()
+    conversa.enviar_botoes = AsyncMock()
+    conversa.enviar_texto = AsyncMock()
+
+    empresa, _, _ = _criar_empresa_com_agendamento(main, models, "5586977770013", "clinica-horario-numero")
+    _substituir_servicos(main, models, empresa.id)
+    numero_cliente = "5586977779914"
+
+    with TestClient(main.app, base_url="https://testserver") as client:
+        client.post(f"/webhook?token={WEBHOOK_SECRET}", json=_payload_texto("clinica-horario-numero", numero_cliente, "preciso de ajuda"))
+        client.post(f"/webhook?token={WEBHOOK_SECRET}", json=_payload_texto("clinica-horario-numero", numero_cliente, "1"))  # ver serviços
+        client.post(f"/webhook?token={WEBHOOK_SECRET}", json=_payload_texto("clinica-horario-numero", numero_cliente, "2"))  # Barba
+
+        client.post(
+            f"/webhook?token={WEBHOOK_SECRET}",
+            json=_payload_botao("clinica-horario-numero", numero_cliente, "periodo:manha", "Manhã"),
+        )
+
+        estado_slots = conversa.obter_estado(empresa.id, numero_cliente)
+        assert estado_slots["passo"] == "aguardando_slot"
+        segunda_opcao_id = estado_slots["contexto"]["_opcoes"][1]
+        segundo_horario = conversa._id_slot_para_datetime(segunda_opcao_id)
+
+        resposta_final = client.post(
+            f"/webhook?token={WEBHOOK_SECRET}",
+            json=_payload_texto("clinica-horario-numero", numero_cliente, "2"),
+        )
+
+    assert resposta_final.status_code == 200
+    db = main.SessionLocal()
+    try:
+        agendamento_criado = (
+            db.query(models.Agendamento)
+            .join(models.ClienteFinal)
+            .filter(models.ClienteFinal.telefone == numero_cliente, models.Agendamento.empresa_id == empresa.id)
+            .order_by(models.Agendamento.id.desc())
+            .first()
+        )
+    finally:
+        db.close()
+
+    assert agendamento_criado is not None
+    assert agendamento_criado.data_hora == segundo_horario
+    assert conversa.obter_estado(empresa.id, numero_cliente)["passo"] == "agendamento_ativo"
+
+
+def test_sugestoes_de_horario_texto_livre_viram_lista_numerada_selecionavel(monkeypatch, tmp_path):
+    """Cobre o ramo de sugestões de `_horario_texto_livre` (ponto 5 dos 7
+    identificados): cliente digita uma data já passada em texto livre, o bot
+    responde com sugestões futuras, e essas sugestões precisam ser selecionáveis
+    por número (passo muda pra aguardando_slot, como o resto das listas de horário)."""
+    main, conversa, models = carregar_app(monkeypatch, tmp_path)
+    conversa.redis_cliente = FakeRedis()
+    conversa.enviar_botoes = AsyncMock()
+    conversa.enviar_texto = AsyncMock()
+
+    empresa, _, _ = _criar_empresa_com_agendamento(main, models, "5586977770015", "clinica-sugestoes-texto")
+    numero_cliente = "5586977779915"
+
+    with TestClient(main.app, base_url="https://testserver") as client:
+        client.post(f"/webhook?token={WEBHOOK_SECRET}", json=_payload_texto("clinica-sugestoes-texto", numero_cliente, "ver serviços"))
+        client.post(f"/webhook?token={WEBHOOK_SECRET}", json=_payload_texto("clinica-sugestoes-texto", numero_cliente, "1"))  # Consulta inicial
+        client.post(
+            f"/webhook?token={WEBHOOK_SECRET}",
+            json=_payload_botao("clinica-sugestoes-texto", numero_cliente, "periodo:outro", "Prefiro digitar"),
+        )
+        assert conversa.obter_estado(empresa.id, numero_cliente)["passo"] == "aguardando_horario_texto"
+
+        # data já passada -> validar_agendamento recusa e sugere horários futuros
+        client.post(
+            f"/webhook?token={WEBHOOK_SECRET}",
+            json=_payload_texto("clinica-sugestoes-texto", numero_cliente, "01/01/2020 10:00"),
+        )
+
+        estado_sugestoes = conversa.obter_estado(empresa.id, numero_cliente)
+        assert estado_sugestoes["passo"] == "aguardando_slot"
+        opcoes = estado_sugestoes["contexto"]["_opcoes"]
+        assert len(opcoes) > 0
+        primeiro_horario = conversa._id_slot_para_datetime(opcoes[0])
+
+        resposta = client.post(
+            f"/webhook?token={WEBHOOK_SECRET}",
+            json=_payload_texto("clinica-sugestoes-texto", numero_cliente, "1"),
+        )
+
+    assert resposta.status_code == 200
+    db = main.SessionLocal()
+    try:
+        agendamento_criado = (
+            db.query(models.Agendamento)
+            .join(models.ClienteFinal)
+            .filter(models.ClienteFinal.telefone == numero_cliente, models.Agendamento.empresa_id == empresa.id)
+            .order_by(models.Agendamento.id.desc())
+            .first()
+        )
+    finally:
+        db.close()
+
+    assert agendamento_criado is not None
+    assert agendamento_criado.data_hora == primeiro_horario
+
+
+def test_sugestoes_de_reagendamento_apos_conflito_sao_selecionaveis_por_numero(monkeypatch, tmp_path):
+    """Cobre o ramo de sugestões de `_reagendar_slot_escolhido` (ponto 7 dos 7
+    identificados): tentativa de reagendar pra uma data já passada gera
+    sugestões futuras, que precisam continuar selecionáveis por número."""
+    main, conversa, models = carregar_app(monkeypatch, tmp_path)
+    conversa.redis_cliente = FakeRedis()
+    conversa.enviar_botoes = AsyncMock()
+    conversa.enviar_texto = AsyncMock()
+
+    numero_cliente = "5586977770016"
+    empresa, _, agendamento = _criar_empresa_com_agendamento(main, models, numero_cliente, "clinica-reagendar-sugestoes")
+
+    with TestClient(main.app, base_url="https://testserver") as client:
+        client.post(
+            f"/webhook?token={WEBHOOK_SECRET}",
+            json=_payload_texto("clinica-reagendar-sugestoes", numero_cliente, "reagendar"),
+        )
+        assert conversa.obter_estado(empresa.id, numero_cliente)["passo"] == "aguardando_reagendamento_slot"
+
+        # data já passada -> reagendar_agendamento recusa e sugere horários futuros
+        client.post(
+            f"/webhook?token={WEBHOOK_SECRET}",
+            json=_payload_texto("clinica-reagendar-sugestoes", numero_cliente, "01/01/2020 10:00"),
+        )
+
+        estado_sugestoes = conversa.obter_estado(empresa.id, numero_cliente)
+        assert estado_sugestoes["passo"] == "aguardando_reagendamento_slot"
+        opcoes = estado_sugestoes["contexto"]["_opcoes"]
+        assert len(opcoes) > 0
+        primeiro_horario = conversa._id_slot_para_datetime(opcoes[0])
+
+        resposta = client.post(
+            f"/webhook?token={WEBHOOK_SECRET}",
+            json=_payload_texto("clinica-reagendar-sugestoes", numero_cliente, "1"),
+        )
+
+    assert resposta.status_code == 200
+    db = main.SessionLocal()
+    try:
+        atualizado = db.query(models.Agendamento).filter_by(id=agendamento.id).first()
+    finally:
+        db.close()
+
+    assert atualizado.status == "agendado"
+    assert atualizado.data_hora == primeiro_horario
+
+
+def test_reagendamento_permite_selecionar_novo_horario_por_numero(monkeypatch, tmp_path):
+    main, conversa, models = carregar_app(monkeypatch, tmp_path)
+    conversa.redis_cliente = FakeRedis()
+    conversa.enviar_botoes = AsyncMock()
+    conversa.enviar_texto = AsyncMock()
+
+    numero_cliente = "5586977770014"  # mesmo telefone do agendamento pré-existente criado abaixo
+    empresa, _, agendamento = _criar_empresa_com_agendamento(main, models, numero_cliente, "clinica-reagendar-numero")
+
+    with TestClient(main.app, base_url="https://testserver") as client:
+        client.post(
+            f"/webhook?token={WEBHOOK_SECRET}",
+            json=_payload_texto("clinica-reagendar-numero", numero_cliente, "reagendar"),
+        )
+
+        estado_slots = conversa.obter_estado(empresa.id, numero_cliente)
+        assert estado_slots["passo"] == "aguardando_reagendamento_slot"
+        segunda_opcao_id = estado_slots["contexto"]["_opcoes"][1]
+        segundo_horario = conversa._id_slot_para_datetime(segunda_opcao_id)
+
+        resposta = client.post(
+            f"/webhook?token={WEBHOOK_SECRET}",
+            json=_payload_texto("clinica-reagendar-numero", numero_cliente, "2"),
+        )
+
+    assert resposta.status_code == 200
+    db = main.SessionLocal()
+    try:
+        atualizado = db.query(models.Agendamento).filter_by(id=agendamento.id).first()
+    finally:
+        db.close()
+
+    assert atualizado.status == "agendado"
+    assert atualizado.data_hora == segundo_horario
