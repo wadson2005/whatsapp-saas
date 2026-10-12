@@ -24,13 +24,11 @@ Cache:
 
 - Redis
 
-Integração:
+Integração WhatsApp (recebimento e envio de mensagens):
 
 - Evolution API
 
-Mensagens interativas:
-
-- Meta Graph API
+Meta Graph API: integrada, mas fora do fluxo de conversa (reservada para uso futuro).
 
 ---
 
@@ -99,5 +97,5 @@ Sempre entregar funcionalidade completa.
 2. CRUD de Empresas
 3. crud de serviços;
 4. Onboarding
-5. Lembretes automáticos de agendamento via WhatsApp (reduz falta/no-show)
+5. Lembretes automáticos de agendamento (hoje por e-mail; WhatsApp removido temporariamente)
 11. Insights e Conhecimento da Empresa (base de conhecimento por empresa usada pela IA, dashboard com indicadores por período, insights automáticos, clientes inativos)

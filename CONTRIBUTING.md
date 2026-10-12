@@ -7,7 +7,7 @@ Obrigado por considerar contribuir com este projeto. Este guia cobre o fluxo esp
 1. Abra uma issue descrevendo o problema ou a funcionalidade antes de começar a implementar, especialmente para mudanças de comportamento ou de schema.
 2. Crie um branch a partir de `master`: `git checkout -b feature/nome-da-mudanca`.
 3. Implemente a mudança com testes cobrindo o caso novo (ou o bug corrigido).
-4. Rode a suíte completa localmente (`python -m pytest`) antes de abrir o PR.
+4. Rode o lint e a suíte completa localmente (`ruff check bot-app` e `pytest`, na raiz do repositório) antes de abrir o PR — o CI (GitHub Actions) roda os dois em todo push e PR.
 5. Abra o Pull Request descrevendo o quê e o porquê da mudança — o "quê" geralmente já está no diff, o "porquê" é o que realmente importa na revisão.
 
 ## Padrões de código
@@ -15,7 +15,7 @@ Obrigado por considerar contribuir com este projeto. Este guia cobre o fluxo esp
 - **Domínio em português, padrões de linguagem em inglês.** Nomes de funções, variáveis e mensagens de negócio seguem o vocabulário do domínio (`agendar_servico`, `buscar_resposta`, `empresa_id`) porque é assim que o time e os stakeholders do produto falam sobre o sistema. Convenções técnicas gerais (nomes de exceções built-in, type hints, etc.) seguem o padrão da linguagem.
 - **Sem duplicação.** Antes de escrever uma função nova, verifique se algo parecido já existe em `core/`, `services/` ou `ai/`.
 - **Sem abstrações antecipadas.** Não crie interfaces, classes base ou camadas genéricas para um único caso de uso. Três linhas repetidas são melhores que uma abstração prematura.
-- **Tratamento de erros explícito.** Erros esperados (validação de formulário, conflito de agendamento) retornam valores/estruturas de erro; falhas de infraestrutura (rede, banco) são logadas com `logging` e nunca derrubam o fluxo principal quando existe um fallback razoável (ver `ai/service.py` e `integrations/meta_client.py` como referência).
+- **Tratamento de erros explícito.** Erros esperados (validação de formulário, conflito de agendamento) retornam valores/estruturas de erro; falhas de infraestrutura (rede, banco) são logadas com `logging` e nunca derrubam o fluxo principal quando existe um fallback razoável (ver `ai/service.py` e `integrations/evolution_client.py` como referência).
 - **Sem `print()` para depuração.** Use o `logger` do módulo (`logging.getLogger(__name__)`) com o nível apropriado (`debug`, `info`, `warning`, `exception`).
 - **Compatibilidade SQLite/PostgreSQL.** Qualquer SQL cru (fora do ORM) precisa funcionar nos dois bancos — literais booleanos, por exemplo, passam por `core/db_compat.sql_bool()`. Não assuma sintaxe específica de um dialeto.
 
@@ -31,11 +31,12 @@ Obrigado por considerar contribuir com este projeto. Este guia cobre o fluxo esp
 ## Testes
 
 ```bash
-cd bot-app
-python -m pytest
+pip install -r bot-app/requirements-dev.txt
+pytest            # na raiz do repositório (config em pyproject.toml)
+ruff check bot-app
 ```
 
-- Os testes usam SQLite em arquivo temporário (`tmp_path`) e simulam Redis, Meta Graph API e o provider de IA — nenhum teste depende de um serviço externo real.
+- Os testes usam SQLite em arquivo temporário (`tmp_path`) e simulam Redis, Evolution API, Meta Graph API, Resend e o provider de IA — nenhum teste depende de um serviço externo real.
 - `tests/conftest.py` centraliza o ambiente de bootstrap (variáveis de ambiente, recarregamento de módulos, `FakeRedis`). Reaproveite `preparar_ambiente()` em vez de duplicar esse setup em um teste novo.
 - Ao adicionar um módulo novo em `core/`, `services/`, `integrations/` ou `ai/`, inclua o nome dele em `APP_MODULES` (`tests/conftest.py`) para que o cache de import seja limpo entre testes.
 

@@ -79,3 +79,15 @@ def test_settings_aceita_valores_fortes(monkeypatch):
 
     assert settings.admin_password == "senha-super-segura-123"
     assert settings.session_secret_key == "0123456789abcdef0123456789abcdef"
+
+
+def test_settings_sobe_sem_credenciais_da_meta(monkeypatch):
+    Settings = carregar_settings(monkeypatch)
+
+    monkeypatch.delenv("META_TOKEN", raising=False)
+    monkeypatch.delenv("META_PHONE_NUMBER_ID", raising=False)
+
+    settings = Settings()
+
+    assert settings.meta_token is None
+    assert settings.meta_phone_number_id is None

@@ -237,7 +237,7 @@ def test_excluir_empresa_limpa_estado_transitorio_no_redis(monkeypatch, tmp_path
     redis_cliente = redis_client_module.redis_cliente
     redis_cliente.set(f"conversa:{empresa.id}:5511900000001", '{"passo": "aguardando_servico", "contexto": {}}')
     redis_cliente.set(f"ai:cache:{empresa.id}:algumhash", '{"intent": "consultar_servicos"}')
-    redis_cliente.set(f"conversa:999999:5511900000002", '{"passo": "novo", "contexto": {}}')  # de outra empresa, não pode ser afetado
+    redis_cliente.set("conversa:999999:5511900000002", '{"passo": "novo", "contexto": {}}')  # de outra empresa, não pode ser afetado
 
     with TestClient(main.app, base_url="https://testserver") as client:
         _login_superadmin(client)

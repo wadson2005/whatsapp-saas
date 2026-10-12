@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from conftest import FakeRedis, preparar_ambiente
+from conftest import preparar_ambiente
 
 
 def carregar_modulo(monkeypatch, tmp_path: Path):

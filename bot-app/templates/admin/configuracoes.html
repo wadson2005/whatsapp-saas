@@ -17,8 +17,8 @@
         <input type="password" name="meta_token" class="form-control" placeholder="{% if meta_token_configurado %}•••••••• (já configurado — deixe em branco para manter){% else %}Nenhum token configurado{% endif %}" autocomplete="new-password" />
       </div>
       <div class="col-12 col-lg-3">
-        <label class="form-label">Phone Number ID</label>
-        <input type="text" name="meta_phone_number_id" class="form-control" value="{{ config.meta_phone_number_id or '' }}" required />
+        <label class="form-label">Phone Number ID (opcional)</label>
+        <input type="text" name="meta_phone_number_id" class="form-control" value="{{ config.meta_phone_number_id or '' }}" />
       </div>
       <div class="col-12 col-lg-3">
         <label class="form-label">Business ID (opcional)</label>

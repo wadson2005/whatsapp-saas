@@ -4,6 +4,14 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ## [Unreleased]
 
+### Alterado (CI, configuração de testes e Meta opcional)
+
+- **CI no GitHub Actions** (`.github/workflows/ci.yml`): `ruff check bot-app` + `pytest` em Python 3.12 a cada push no `master` e em todo PR.
+- `pyproject.toml` na raiz com a configuração do pytest (`testpaths`/`pythonpath`) — `pytest` agora funciona tanto da raiz do repositório quanto de `bot-app/` (antes, rodar da raiz quebrava a coleta com `ModuleNotFoundError: services`). Ruff configurado só com as regras padrão (`E4`, `E7`, `E9`, `F`); corrigidos os 6 achados (imports não usados, f-string sem placeholder, variável ambígua).
+- `bot-app/requirements-dev.txt` com `pytest` e `ruff` versionados (antes eram instalação manual).
+- **`META_TOKEN`/`META_PHONE_NUMBER_ID` deixam de ser obrigatórios**: o envio de mensagens já é feito pela Evolution API, então a aplicação não exige mais credenciais da Meta para subir. Sem credenciais, `meta_client` não chama a Graph API (loga um aviso e devolve erro). O campo "Phone Number ID" de `/admin/configuracoes` deixou de ser `required` e um valor vazio passa a ser gravado como `NULL`.
+- Documentação (README, `docs/architecture.md`, `docs/deployment.md`, `CONTRIBUTING.md`, `.env.example`, `CLAUDE.md`) corrigida: descrevia o envio de respostas pela Meta Graph API, mas o código já usa a Evolution API; contagem de testes desatualizada trocada pelo badge do CI.
+
 ### Adicionado (seleção por número nos menus de texto — UX pós-remoção do sendList)
 
 - O hotfix anterior (seção abaixo) trocou listas tocáveis por texto simples, mas exigia digitar o nome completo da opção — atrito real pro cliente final. Agora **toda mensagem de opções gerada pelo bot é numerada** (`1. Corte`, `2. Barba`, ...) e o cliente responde só com o número; digitar o nome/data/horário continua funcionando igual antes.

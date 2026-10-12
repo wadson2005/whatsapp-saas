@@ -19,8 +19,9 @@ class Settings(BaseSettings):
     evolution_url: str = Field(default="http://localhost:8080", validation_alias="EVOLUTION_URL")
     evolution_api_key: str = Field(validation_alias="EVOLUTION_API_KEY")
     evolution_instance: str = Field(default="teste-aprendizado", validation_alias="EVOLUTION_INSTANCE")
-    meta_token: str = Field(validation_alias="META_TOKEN")
-    meta_phone_number_id: str = Field(validation_alias="META_PHONE_NUMBER_ID")
+    # Opcionais: o envio de mensagens é feito pela Evolution API; a Meta fica reservada para uso futuro.
+    meta_token: str | None = Field(default=None, validation_alias="META_TOKEN")
+    meta_phone_number_id: str | None = Field(default=None, validation_alias="META_PHONE_NUMBER_ID")
     meta_business_id: str | None = Field(default=None, validation_alias="META_BUSINESS_ID")
     seed_empresa_slug: str = Field(default="sorriso-feliz", validation_alias="SEED_EMPRESA_SLUG")
     seed_empresa_nome: str = Field(default="Clínica Sorriso Feliz", validation_alias="SEED_EMPRESA_NOME")

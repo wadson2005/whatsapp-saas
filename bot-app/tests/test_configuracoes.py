@@ -5,8 +5,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from fastapi.testclient import TestClient
 
-from conftest import preparar_ambiente
+from conftest import ADMIN_PASSWORD, preparar_ambiente
 
 ENV_OVERRIDES = {"META_TOKEN": "tok-env", "META_PHONE_NUMBER_ID": "phone-env"}
 
@@ -223,6 +224,50 @@ def test_meta_client_usa_configuracao_atualizada_sem_restart(monkeypatch, tmp_pa
     assert urls_chamadas[0][1] == "Bearer tok-env"
     assert "phone-novo" in urls_chamadas[1][0]
     assert urls_chamadas[1][1] == "Bearer token-novo"
+
+
+def test_meta_client_sem_credenciais_nao_chama_graph_api(monkeypatch, tmp_path):
+    # String vazia (e não delenv) para não herdar valores do bot-app/.env local.
+    preparar_ambiente(monkeypatch, tmp_path, {"META_TOKEN": "", "META_PHONE_NUMBER_ID": ""})
+    main = importlib.import_module("main")
+    meta_client = importlib.import_module("integrations.meta_client")
+    main.ensure_schema()
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("Graph API não deveria ser chamada sem credenciais")
+
+    with patch("integrations.meta_client.httpx.AsyncClient", FakeAsyncClient):
+        resultado = asyncio.run(meta_client.enviar_botoes("5511900000001", "oi", [{"id": "menu", "titulo": "Menu"}]))
+
+    assert resultado == {"error": {"message": "meta_nao_configurada"}}
+
+
+def test_painel_salva_configuracoes_sem_phone_number_id_da_meta(monkeypatch, tmp_path):
+    main, models, configuracoes, *_ = carregar_app(monkeypatch, tmp_path)
+
+    with TestClient(main.app, base_url="https://testserver") as client:
+        login = client.post(
+            "/admin/login",
+            data={"username": "admin", "password": ADMIN_PASSWORD},
+            follow_redirects=False,
+        )
+        assert login.status_code == 303
+
+        resposta = client.post(
+            "/admin/configuracoes",
+            data={"meta_phone_number_id": "", "lembrete_antecedencia_horas": "12"},
+            follow_redirects=False,
+        )
+
+    assert resposta.status_code == 303
+    db = main.SessionLocal()
+    try:
+        config = configuracoes.obter_configuracao(db)
+        assert config.meta_phone_number_id is None
+        assert config.lembrete_antecedencia_horas == 12
+    finally:
+        db.close()
 
 
 # --- lembretes.py: respeita antecedência vinda da configuração ---------------------

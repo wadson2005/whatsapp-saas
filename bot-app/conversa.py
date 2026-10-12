@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime, timedelta, time
+from datetime import datetime, time
 
 from ai.models import Intent
 from ai.service import criar_ai_service

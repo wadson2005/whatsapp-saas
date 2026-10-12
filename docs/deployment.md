@@ -37,7 +37,7 @@ docker compose up -d
 ```bash
 cd bot-app
 cp .env.example .env
-# preencha DATABASE_URL, REDIS_URL, credenciais da Meta, PUBLIC_BASE_URL, WEBHOOK_SECRET, ADMIN_PASSWORD e SESSION_SECRET_KEY
+# preencha DATABASE_URL, REDIS_URL, EVOLUTION_API_KEY, PUBLIC_BASE_URL, WEBHOOK_SECRET, ADMIN_PASSWORD e SESSION_SECRET_KEY
 
 python -m scripts.criar_tabelas   # bootstrap idempotente do schema
 docker compose up --build -d
@@ -66,7 +66,7 @@ sudo systemctl reload caddy
 
 ## Variáveis obrigatórias
 
-Ver a lista completa em [bot-app/.env.example](../bot-app/.env.example) e na seção "Variáveis de ambiente" do [README](../README.md). As que impedem a aplicação de subir se ausentes ou fracas: `DATABASE_URL`, `REDIS_URL`, `EVOLUTION_API_KEY`, `PUBLIC_BASE_URL`, `WEBHOOK_SECRET`, `META_TOKEN`, `META_PHONE_NUMBER_ID`, `ADMIN_PASSWORD`, `SESSION_SECRET_KEY`.
+Ver a lista completa em [bot-app/.env.example](../bot-app/.env.example) e na seção "Variáveis de ambiente" do [README](../README.md). As que impedem a aplicação de subir se ausentes ou fracas: `DATABASE_URL`, `REDIS_URL`, `EVOLUTION_API_KEY`, `PUBLIC_BASE_URL`, `WEBHOOK_SECRET`, `ADMIN_PASSWORD`, `SESSION_SECRET_KEY`. As credenciais da Meta (`META_TOKEN`, `META_PHONE_NUMBER_ID`) são opcionais — o envio de mensagens é feito pela Evolution API.
 
 > **Atualizando uma instalação existente:** `PUBLIC_BASE_URL` e `WEBHOOK_SECRET` são variáveis novas — se o processo já estava rodando antes dessa mudança, adicione as duas ao `.env` antes de reiniciar, senão a aplicação não sobe (falha de validação na inicialização, igual às outras variáveis obrigatórias).
 >

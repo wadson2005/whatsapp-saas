@@ -7,8 +7,11 @@ from services.configuracoes import obter_configuracao_isolada
 logger = logging.getLogger(__name__)
 
 
-def _api_url_e_headers() -> tuple[str, dict[str, str]]:
+def _api_url_e_headers() -> tuple[str, dict[str, str]] | None:
+    """Monta URL e headers da Graph API, ou `None` se as credenciais da Meta não estiverem configuradas."""
     config = obter_configuracao_isolada()
+    if not config.meta_token or not config.meta_phone_number_id:
+        return None
     url = f"https://graph.facebook.com/v21.0/{config.meta_phone_number_id}/messages"
     headers = {"Authorization": f"Bearer {config.meta_token}"}
     return url, headers
@@ -21,7 +24,12 @@ async def _enviar(payload: dict) -> dict:
     exceção — devolve `{"error": {...}}` para que o chamador trate do mesmo jeito
     que trataria uma rejeição da própria Meta (ver `lembretes.enviar_lembrete`).
     """
-    url, headers = _api_url_e_headers()
+    destino = _api_url_e_headers()
+    if destino is None:
+        logger.warning("Envio pela Graph API ignorado: META_TOKEN/META_PHONE_NUMBER_ID não configurados")
+        return {"error": {"message": "meta_nao_configurada"}}
+
+    url, headers = destino
     try:
         async with httpx.AsyncClient() as client:
             resposta = await client.post(url, headers=headers, json=payload)
@@ -95,8 +103,8 @@ async def enviar_lista(numero: str, texto: str, titulo_botao: str, secoes: list[
                     {
                         "title": s["titulo"],
                         "rows": [
-                            {"id": l["id"], "title": l["titulo"], "description": l.get("descricao", "")}
-                            for l in s["linhas"]
+                            {"id": linha["id"], "title": linha["titulo"], "description": linha.get("descricao", "")}
+                            for linha in s["linhas"]
                         ],
                     }
                     for s in secoes_limitadas

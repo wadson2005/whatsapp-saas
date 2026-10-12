@@ -1924,7 +1924,7 @@ async def configuracoes_page(request: Request, db: Session = Depends(get_db), _:
 async def configuracoes_submit(request: Request, db: Session = Depends(get_db), _: None = Depends(require_superadmin)):
     form = await request.form()
     campos = {
-        "meta_phone_number_id": (form.get("meta_phone_number_id") or "").strip(),
+        "meta_phone_number_id": parse_optional_str(form.get("meta_phone_number_id")),
         "meta_business_id": parse_optional_str(form.get("meta_business_id")),
         "lembrete_antecedencia_horas": parse_optional_int(form.get("lembrete_antecedencia_horas")) or 24,
         "lembrete_intervalo_minutos": parse_optional_int(form.get("lembrete_intervalo_minutos")) or 15,

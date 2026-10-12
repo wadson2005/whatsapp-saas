@@ -2,14 +2,14 @@
 
 Plataforma de atendimento e agendamento via WhatsApp para pequenos negócios (clínicas, barbearias, salões, restaurantes), com um único código-base atendendo várias empresas ao mesmo tempo. Cada empresa tem seu próprio catálogo de serviços, horários, base de conhecimento e configurações — isolados por `empresa_id` no mesmo banco.
 
-[![Testes](https://img.shields.io/badge/testes-139%20passing-brightgreen)]()
+[![CI](https://github.com/wadson2005/whatsapp-saas/actions/workflows/ci.yml/badge.svg)](https://github.com/wadson2005/whatsapp-saas/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.12-blue)]()
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688)]()
 [![Licença](https://img.shields.io/badge/licença-MIT-blue)](LICENSE)
 
 ## Visão geral
 
-O sistema recebe mensagens do WhatsApp via webhook, conduz o cliente por uma máquina de estados (escolha de serviço, horário e confirmação), grava o agendamento em PostgreSQL com validação real de conflito e disponibilidade, e devolve a resposta como mensagem interativa (botões ou lista) pela Meta Graph API. Um painel administrativo web cobre toda a operação sem precisar de terminal: cadastro de empresas e serviços, agenda, base de conhecimento, métricas, insights e configurações operacionais.
+O sistema recebe mensagens do WhatsApp via webhook, conduz o cliente por uma máquina de estados (escolha de serviço, horário e confirmação), grava o agendamento em PostgreSQL com validação real de conflito e disponibilidade, e devolve a resposta pela própria instância da empresa na Evolution API (botões ou opções numeradas). Um painel administrativo web cobre toda a operação sem precisar de terminal: cadastro de empresas e serviços, agenda, base de conhecimento, métricas, insights e configurações operacionais.
 
 ```
 WhatsApp → Evolution API (webhook) → FastAPI → máquina de estados → PostgreSQL
@@ -18,7 +18,7 @@ WhatsApp → Evolution API (webhook) → FastAPI → máquina de estados → Pos
                                                        │
                                         camada de IA opcional (fallback)
                                                        │
-                                    Meta Graph API → resposta interativa
+                                Evolution API (instância da empresa) → resposta
 ```
 
 Documentação mais profunda:
@@ -48,7 +48,7 @@ Documentação mais profunda:
 - **Compatibilidade real SQLite/PostgreSQL** — os testes rodam em SQLite e a produção em PostgreSQL contra o mesmo bootstrap de schema, sem duplicar lógica de migration (ver `core/db_compat.py`).
 - **Configuração operacional viva no banco** — token da Meta, provider de IA e antecedência de lembrete são editáveis pelo painel e valem imediatamente, sem redeploy. A palavra de ativação do bot é por empresa (`/admin/configurar-bot/atendimento`), não global.
 - **IA como fallback, nunca como autoridade** — a camada de IA só é consultada quando a máquina de estados e a base de conhecimento não resolvem, e nunca executa uma ação destrutiva (cancelamento, por exemplo) sem passar pela tela de confirmação normal.
-- **Suíte de testes de verdade** — 139 testes automatizados cobrindo onboarding, conversa, agendamento, lembretes, base de conhecimento, métricas, papéis/permissões e a camada de IA (com providers e Redis simulados, sem depender de serviços externos).
+- **Suíte de testes de verdade** — 200+ testes automatizados, rodando no CI (GitHub Actions) a cada push, cobrindo onboarding, conversa, agendamento, lembretes, base de conhecimento, métricas, papéis/permissões e a camada de IA (com providers e Redis simulados, sem depender de serviços externos).
 - **Bootstrap de schema idempotente** — cria tabelas novas e adiciona colunas em bancos já existentes automaticamente, sem exigir um framework de migration para um projeto deste porte.
 
 ## Stack técnica
@@ -58,12 +58,12 @@ Documentação mais profunda:
 | API / painel | Python 3.12 + FastAPI + Uvicorn | Webhook, painel administrativo, onboarding |
 | Persistência | PostgreSQL (produção) / SQLite (testes) + SQLAlchemy 2.0 | Empresas, serviços, clientes, agendamentos |
 | Estado de conversa | Redis | Passo atual da conversa, com expiração automática |
-| Integração WhatsApp | Evolution API | Recebe os webhooks de mensagem |
-| Mensagens interativas | Meta Graph API | Envia botões, listas e templates |
+| Integração WhatsApp | Evolution API | Recebe os webhooks e envia as respostas (uma instância por empresa) |
+| Meta Graph API (opcional) | Meta Graph API | Integrada, mas fora do fluxo de conversa — reservada para uso futuro |
 | Camada de IA (opcional) | OpenAI (interface plugável) | Interpretação de linguagem natural como fallback |
 | Templates | Jinja2 + Bootstrap | Painel administrativo server-side |
 | Infraestrutura | Docker + Docker Compose + systemd + Caddy | Build, orquestração, supervisão e proxy reverso |
-| Testes | pytest + FastAPI TestClient | 101 testes, banco SQLite isolado por teste |
+| Testes / CI | pytest + FastAPI TestClient + ruff + GitHub Actions | Banco SQLite isolado por teste, lint e testes em todo push/PR |
 
 ## Arquitetura de código
 
@@ -71,7 +71,7 @@ O backend (`bot-app/`) é organizado em camadas:
 
 - **`core/`** — infraestrutura compartilhada: configuração (`config.py`), conexão com o banco (`database.py`), modelos SQLAlchemy (`models.py`), bootstrap de schema (`schema.py`), compatibilidade SQLite/PostgreSQL (`db_compat.py`), cliente Redis (`redis_client.py`) e hashing de senha (`security.py`).
 - **`services/`** — regras de negócio: motor de agendamento (`agenda.py`), base de conhecimento (`conhecimento.py`), atendimento humano (`atendimento_humano.py`), lembretes (`lembretes.py`), métricas/insights (`metricas.py`), configuração operacional (`configuracoes.py`), usuários e papéis do painel (`usuarios.py`) e utilitários de texto (`texto_utils.py`).
-- **`integrations/`** — clientes de APIs externas: `meta_client.py` (Meta Graph API) e `evolution_client.py` (criação de instância, QR code de pareamento e status de conexão na Evolution API).
+- **`integrations/`** — clientes de APIs externas: `evolution_client.py` (criação de instância, QR code de pareamento, status de conexão e envio de mensagens), `email_client.py` (Resend) e `meta_client.py` (Meta Graph API, fora do fluxo de conversa).
 - **`ai/`** — camada de interpretação de linguagem natural, isolada por trás de uma interface de provider única (`provider.py`, `service.py`, `cache.py`, `prompts.py`, `models.py`).
 - **`scripts/`** — utilitários de linha de comando: criação de tabelas, seed e pausar/retomar uma empresa.
 - **Raiz (`main.py`, `admin.py`, `conversa.py`)** — camada de apresentação: entrypoint FastAPI, sub-aplicação do painel administrativo e a máquina de estados da conversa. Ambas as rotas usam injeção de dependência do FastAPI (`Depends(get_db)`) para a sessão do banco, sem sessões manuais espalhadas pelas rotas.
@@ -83,7 +83,7 @@ O backend (`bot-app/`) é organizado em camadas:
 - Python 3.12+
 - PostgreSQL 16 (ou SQLite para testar rapidamente sem subir banco)
 - Redis 7
-- Uma instância da [Evolution API](https://github.com/EvolutionAPI/evolution-api) configurada e um número de teste na [Meta Graph API](https://developers.facebook.com/docs/whatsapp)
+- Uma instância da [Evolution API](https://github.com/EvolutionAPI/evolution-api) configurada
 
 ### Passo a passo
 
@@ -110,11 +110,12 @@ A aplicação sobe em `http://localhost:8000`. O painel fica em `/admin/login` e
 ### Executando os testes
 
 ```bash
-cd bot-app
-python -m pytest
+pip install -r bot-app/requirements-dev.txt
+pytest              # na raiz do repositório (config em pyproject.toml)
+ruff check bot-app  # lint
 ```
 
-Os testes usam SQLite em arquivo temporário e não dependem de Postgres, Redis ou APIs externas rodando de verdade (todos os clientes externos são simulados).
+Os mesmos comandos rodam no GitHub Actions (`.github/workflows/ci.yml`) a cada push e pull request. Os testes usam SQLite em arquivo temporário e não dependem de Postgres, Redis ou APIs externas rodando de verdade (todos os clientes externos são simulados).
 
 ## Executando via Docker
 
@@ -136,7 +137,7 @@ Todas documentadas em [bot-app/.env.example](bot-app/.env.example). As mais rele
 | `EVOLUTION_API_KEY` | sim | Chave da instância da Evolution API |
 | `PUBLIC_BASE_URL` | sim | URL pública do bot (ex.: `https://seu-dominio.com`), usada para configurar o webhook ao criar uma instância na Evolution API automaticamente |
 | `WEBHOOK_SECRET` | sim | Segredo que autentica `POST /webhook` (vai como `?token=...` na URL configurada na Evolution API; requisições sem o token correto recebem 401) — gere com `openssl rand -hex 32` |
-| `META_TOKEN` / `META_PHONE_NUMBER_ID` | sim | Credenciais da Meta Graph API |
+| `META_TOKEN` / `META_PHONE_NUMBER_ID` | não | Credenciais da Meta Graph API — reservadas para uso futuro; o envio de mensagens é feito pela Evolution API |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | sim | Login do superadmin da plataforma (acesso a todas as empresas) — `ADMIN_PASSWORD` precisa ser forte, valores padrão são rejeitados na inicialização. Usuários por empresa (`admin`/`operador`) são cadastrados depois, em `/admin/usuarios` |
 | `SESSION_SECRET_KEY` | sim | Chave de assinatura de sessão (≥16 caracteres, gere com `openssl rand -hex 32`) |
 | `AI_ENABLED` | não (padrão `false`) | Liga a camada de IA — sem isso, comportamento idêntico ao de não ter essa camada |
@@ -154,7 +155,7 @@ whatsapp-saas/
 │   ├── conversa.py             # máquina de estados da conversa
 │   ├── core/                   # config, banco, modelos, schema, redis
 │   ├── services/                # regras de negócio (agenda, lembretes, métricas...)
-│   ├── integrations/            # clientes de APIs externas (Meta)
+│   ├── integrations/            # clientes de APIs externas (Evolution, Resend, Meta)
 │   ├── ai/                      # camada de interpretação de linguagem natural
 │   ├── scripts/                  # CLI: criar tabelas, seed, pausar/retomar
 │   ├── templates/                # HTML do painel e do onboarding (Jinja2)
@@ -164,7 +165,9 @@ whatsapp-saas/
 ├── evolution/                  # infraestrutura de apoio (Evolution API, Postgres, Redis)
 ├── docs/                       # documentação técnica aprofundada
 ├── Caddyfile                   # proxy reverso de produção
-└── bot-app.service             # unit file systemd (template)
+├── bot-app.service             # unit file systemd (template)
+├── pyproject.toml              # config de pytest e ruff
+└── .github/workflows/ci.yml    # CI: lint + testes
 ```
 
 ## Endpoints principais
@@ -204,7 +207,7 @@ Payload típico recebido em `/webhook` quando um cliente envia uma mensagem de t
 }
 ```
 
-O bot identifica a empresa pela `instance`, abre (ou recupera) o estado da conversa no Redis e responde com a lista de serviços ativos daquela empresa via Meta Graph API.
+O bot identifica a empresa pela `instance`, abre (ou recupera) o estado da conversa no Redis e responde com a lista de serviços ativos daquela empresa pela instância dela na Evolution API.
 
 ## Roadmap
 
@@ -231,7 +234,7 @@ O bot identifica a empresa pela `instance`, abre (ou recupera) o estado da conve
 - Busca semântica (embeddings) na base de conhecimento, se o volume de perguntas justificar.
 - Campanhas de retorno automatizadas a partir da listagem de clientes inativos.
 - Renovação/validação automática de token da Meta.
-- Cache/reuso de cliente HTTP para as chamadas à Meta Graph API.
+- Cache/reuso de cliente HTTP para as chamadas à Evolution API.
 
 ## Contribuindo
 
