@@ -13,7 +13,7 @@ Internet → Caddy (proxy reverso, TLS automático) → bot-app (Docker, porta 8
 
 - `evolution/docker-compose.yml` sobe PostgreSQL 16 (`127.0.0.1:5432`), Redis 7 (`127.0.0.1:6379`) e a Evolution API (`127.0.0.1:8080`) — nenhum desses serviços fica exposto publicamente.
 - `bot-app/docker-compose.yml` sobe o container da aplicação em modo `network_mode: host`, escutando na porta 8000.
-- O [Caddyfile](../Caddyfile) encaminha o domínio público para a porta local do bot (ou da Evolution API, dependendo de qual endpoint deve ficar público).
+- O [Caddyfile](../Caddyfile) encaminha o domínio público para o bot (`localhost:8000`) — é por ele que chegam o webhook da Evolution API (`PUBLIC_BASE_URL/webhook`), o painel e o onboarding. A Evolution API continua só em `127.0.0.1:8080`, acessada pelo bot via localhost.
 - [bot-app.service](../bot-app.service) é um template de unit file systemd que supervisiona o `docker compose up` do bot, reiniciando automaticamente em caso de falha.
 
 ## Pré-requisitos no servidor

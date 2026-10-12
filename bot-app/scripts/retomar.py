@@ -1,9 +1,9 @@
 import sys
-from datetime import datetime
 
 from core.config import settings
 from core.database import SessionLocal
 from core.models import Empresa
+from core.tempo import agora_utc
 
 db = SessionLocal()
 try:
@@ -14,7 +14,7 @@ try:
 
     empresa.ativo = True
     if not empresa.ativado_em:
-        empresa.ativado_em = datetime.utcnow()
+        empresa.ativado_em = agora_utc()
     db.commit()
     print(f"Bot da '{empresa.nome}' está ATIVO novamente.")
 finally:

@@ -3,7 +3,6 @@ import hmac
 import logging
 import re
 from contextlib import suppress
-from datetime import datetime
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -22,6 +21,7 @@ from core.models import Empresa, UsuarioPainel
 from core.rate_limit import excedeu_limite, ip_do_cliente
 from core.redis_client import redis_cliente
 from core.schema import ensure_schema
+from core.tempo import agora_utc
 from services.configuracoes import obter_configuracao
 from services.lembretes import enviar_lembretes_pendentes
 from services.usuarios import PAPEL_OPERADOR, criar_usuario
@@ -252,7 +252,7 @@ def _atualizar_estado_conexao(db: Session, payload: dict) -> dict:
         return {"status": "empresa_nao_encontrada"}
 
     empresa.estado_conexao_whatsapp = estado
-    empresa.estado_conexao_atualizado_em = datetime.utcnow()
+    empresa.estado_conexao_atualizado_em = agora_utc()
     db.commit()
     return {"status": "ok"}
 

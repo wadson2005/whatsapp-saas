@@ -212,6 +212,17 @@ Duas decisões de definição, documentadas aqui porque não são óbvias só ol
 
 **Clientes inativos** (`/admin/clientes-inativos`) usa a mesma estrutura de query da listagem geral de clientes, com seletor de 30/60/90/180 dias. Um cliente é considerado inativo quando sua última interação (o agendamento mais recente, ou a data de cadastro se nunca agendou) é mais antiga que o corte selecionado.
 
+## Fuso horário
+
+Todas as colunas de data são `DateTime` sem fuso, com duas convenções distintas (centralizadas em `core/tempo.py`):
+
+- **Horário local da empresa** — `Agendamento.data_hora`, horário de funcionamento, almoço e horário de resposta do bot. É o horário que o cliente digita e lê no WhatsApp. Toda comparação com "agora" usa `agora_local(empresa)`, que converte o instante atual para `Empresa.fuso_horario` (IANA, padrão `America/Sao_Paulo`, editável em `/admin/configurar-bot/horarios` entre os quatro fusos do Brasil).
+- **UTC** — timestamps de auditoria (`criado_em`, `cancelado_em`, `ativado_em`, `lembrete_email_enviado_em`, expiração de token de senha). Use `agora_utc()`; nunca `datetime.utcnow()` (deprecated) nem `datetime.now()` (depende do fuso do servidor — UTC dentro do container).
+
+Por que importa: antes dessa separação, a agenda usava o relógio UTC e a checagem de horário de resposta usava o relógio do servidor. Em produção (container em UTC) isso deslocava tudo em 3h: às 07:00 de Brasília a agenda escondia os horários das 08:00–10:00 e o bot respondia "fora do horário" no fim da tarde.
+
+Lembretes: como `data_hora` está no horário local de cada empresa, `buscar_agendamentos_para_lembrete` filtra o banco por uma janela UTC folgada (±14h, cobre qualquer fuso) e aplica a janela exata por empresa em Python. O pacote `tzdata` está em `requirements.txt` para o `zoneinfo` funcionar em Windows e imagens enxutas sem base de fusos do sistema.
+
 ## Compatibilidade SQLite / PostgreSQL
 
 Os testes rodam contra SQLite (arquivo temporário por teste) e a produção contra PostgreSQL. `core/schema.py` usa `Base.metadata.create_all()` do SQLAlchemy (já portável) para criar tabelas novas, e uma migration manual idempotente (`_add_column_if_missing`) para adicionar colunas em bancos já existentes. Qualquer literal booleano usado nessa migration manual passa por `core/db_compat.sql_bool()`, que gera `TRUE`/`FALSE` — a forma que funciona nos dois bancos (SQLite aceita esses literais desde a versão 3.23; `1`/`0` funcionam no SQLite mas quebram no PostgreSQL, que exige um booleano de verdade no `DEFAULT` de uma coluna `BOOLEAN`).

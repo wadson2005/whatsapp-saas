@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
 
 from sqlalchemy.orm import joinedload
 
 from core.models import EmpresaConhecimento
+from core.tempo import agora_utc
 
 from .texto_utils import normalizar_texto
 
@@ -41,7 +41,7 @@ def atualizar_conhecimento(entrada: EmpresaConhecimento, categoria: str | None, 
     entrada.pergunta = pergunta
     entrada.resposta = resposta
     entrada.ativo = ativo
-    entrada.atualizado_em = datetime.utcnow()
+    entrada.atualizado_em = agora_utc()
 
 
 def listar_conhecimento(db, empresa_id: int | None, incluir_inativos: bool = True):
@@ -59,7 +59,7 @@ def listar_conhecimento(db, empresa_id: int | None, incluir_inativos: bool = Tru
 
 def excluir_conhecimento(entrada: EmpresaConhecimento) -> None:
     entrada.ativo = False
-    entrada.excluido_em = datetime.utcnow()
+    entrada.excluido_em = agora_utc()
 
 
 def _palavras_significativas(texto: str) -> set[str]:

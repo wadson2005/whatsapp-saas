@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import func
 
 from core.models import Agendamento, ClienteFinal, ConversaIniciada, Empresa, Servico, SolicitacaoAtendimento
+from core.tempo import agora_utc
 
 from .agenda import PERIODOS
 
@@ -176,7 +177,7 @@ def _contar_clientes_recorrentes(db, empresa_id: int | None, data_inicio: dateti
 
 
 def listar_clientes_inativos(db, empresa_id: int | None, dias: int) -> list[dict]:
-    corte = datetime.utcnow() - timedelta(days=dias)
+    corte = agora_utc() - timedelta(days=dias)
 
     query = (
         db.query(
@@ -216,7 +217,7 @@ DIAS_INATIVIDADE_INSIGHT = 90
 
 def gerar_insights(db, empresa_id: int | None) -> list[str]:
     """Frases geradas só a partir de números já calculados — nunca texto ou dado inventado."""
-    agora = datetime.utcnow()
+    agora = agora_utc()
     metricas_30d = calcular_metricas(db, empresa_id, agora - timedelta(days=30), agora)
 
     insights: list[str] = []

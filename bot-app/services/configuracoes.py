@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from types import SimpleNamespace
 
 from core.config import settings
 from core.database import SessionLocal
 from core.models import ConfiguracaoSistema
+from core.tempo import agora_utc
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,7 @@ def atualizar_configuracao(db, **campos) -> ConfiguracaoSistema:
         if campo not in _CAMPOS_EDITAVEIS:
             raise ValueError(f"Campo de configuração desconhecido: {campo}")
         setattr(config, campo, valor)
-    config.atualizado_em = datetime.utcnow()
+    config.atualizado_em = agora_utc()
     db.commit()
     db.refresh(config)
     return config

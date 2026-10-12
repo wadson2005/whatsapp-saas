@@ -1,9 +1,8 @@
-from datetime import datetime
-
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 
 from .database import Base
+from .tempo import FUSO_PADRAO, agora_utc
 
 
 class Empresa(Base):
@@ -24,6 +23,7 @@ class Empresa(Base):
     horario_almoco_inicio = Column(String)
     horario_almoco_fim = Column(String)
     dias_funcionamento = Column(String, default="0,1,2,3,4,5")
+    fuso_horario = Column(String, default=FUSO_PADRAO)  # IANA; horários de agenda são locais neste fuso
     intervalo_entre_atendimentos_minutos = Column(Integer, default=15)
     dias_indisponiveis = Column(String, default="")
     datas_indisponiveis = Column(String, default="")
@@ -48,7 +48,7 @@ class Empresa(Base):
     # Evolution avisou. "close"/"connecting"/"open"/"refused"; None = nunca conectou.
     estado_conexao_whatsapp = Column(String, nullable=True)
     estado_conexao_atualizado_em = Column(DateTime, nullable=True)
-    criado_em = Column(DateTime, default=datetime.utcnow)
+    criado_em = Column(DateTime, default=agora_utc)
 
     servicos = relationship("Servico", back_populates="empresa")
     agendamentos = relationship("Agendamento", back_populates="empresa")
@@ -80,7 +80,7 @@ class ClienteFinal(Base):
     telefone = Column(String, nullable=False)
     nome = Column(String)
     email = Column(String, nullable=True)
-    criado_em = Column(DateTime, default=datetime.utcnow)
+    criado_em = Column(DateTime, default=agora_utc)
 
     solicitacoes_atendimento = relationship("SolicitacaoAtendimento", back_populates="cliente")
     agendamentos = relationship("Agendamento", back_populates="cliente_final")
@@ -96,7 +96,7 @@ class UsuarioPainel(Base):
     senha_hash = Column(String, nullable=False)
     papel = Column(String, nullable=False, default="operador")
     ativo = Column(Boolean, default=True)
-    criado_em = Column(DateTime, default=datetime.utcnow)
+    criado_em = Column(DateTime, default=agora_utc)
     reset_token_hash = Column(String, nullable=True)
     reset_token_expira_em = Column(DateTime, nullable=True)
 
@@ -113,7 +113,7 @@ class SolicitacaoAtendimento(Base):
     nome = Column(String)
     mensagem = Column(String, nullable=False)
     status = Column(String, default="pendente")
-    criado_em = Column(DateTime, default=datetime.utcnow)
+    criado_em = Column(DateTime, default=agora_utc)
 
     empresa = relationship("Empresa", back_populates="solicitacoes_atendimento")
     cliente = relationship("ClienteFinal", back_populates="solicitacoes_atendimento")
@@ -148,8 +148,8 @@ class EmpresaConhecimento(Base):
     pergunta = Column(String, nullable=False)
     resposta = Column(String, nullable=False)
     ativo = Column(Boolean, default=True)
-    criado_em = Column(DateTime, default=datetime.utcnow)
-    atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    criado_em = Column(DateTime, default=agora_utc)
+    atualizado_em = Column(DateTime, default=agora_utc, onupdate=agora_utc)
     excluido_em = Column(DateTime)
 
     empresa = relationship("Empresa")
@@ -161,7 +161,7 @@ class ConversaIniciada(Base):
     id = Column(Integer, primary_key=True)
     empresa_id = Column(Integer, ForeignKey("empresas.id"), nullable=False)
     telefone = Column(String, nullable=False)
-    criado_em = Column(DateTime, default=datetime.utcnow)
+    criado_em = Column(DateTime, default=agora_utc)
 
     empresa = relationship("Empresa")
 
@@ -195,4 +195,4 @@ class ConfiguracaoSistema(Base):
     ai_timeout_segundos = Column(Float, default=6.0)
     ai_cache_ttl_segundos = Column(Integer, default=600)
 
-    atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    atualizado_em = Column(DateTime, default=agora_utc, onupdate=agora_utc)

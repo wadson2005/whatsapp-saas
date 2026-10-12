@@ -7,6 +7,11 @@ from unittest.mock import AsyncMock
 from conftest import preparar_ambiente
 
 
+
+def _agora_local():
+    """Agora no fuso padrão da empresa — mesma referência de `Agendamento.data_hora`."""
+    return importlib.import_module("core.tempo").agora_local()
+
 def carregar_app(monkeypatch, tmp_path: Path):
     preparar_ambiente(monkeypatch, tmp_path)
     main = importlib.import_module("main")
@@ -116,7 +121,7 @@ def test_agendamento_na_janela_recebe_lembrete_e_marca_enviado(monkeypatch, tmp_
     servico = _seed_servico(main, models, empresa, "Corte")
     cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email="ana@exemplo.com")
     agendamento = _seed_agendamento(
-        main, models, empresa, cliente, servico, datetime.utcnow() + timedelta(hours=2)
+        main, models, empresa, cliente, servico, _agora_local() + timedelta(hours=2)
     )
 
     db = main.SessionLocal()
@@ -143,7 +148,7 @@ def test_agendamento_fora_da_janela_nao_recebe_lembrete(monkeypatch, tmp_path):
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
     servico = _seed_servico(main, models, empresa, "Corte")
     cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email="ana@exemplo.com")
-    _seed_agendamento(main, models, empresa, cliente, servico, datetime.utcnow() + timedelta(hours=48))
+    _seed_agendamento(main, models, empresa, cliente, servico, _agora_local() + timedelta(hours=48))
 
     db = main.SessionLocal()
     try:
@@ -168,7 +173,7 @@ def test_agendamento_ja_com_lembrete_nao_reenvia(monkeypatch, tmp_path):
         empresa,
         cliente,
         servico,
-        datetime.utcnow() + timedelta(hours=2),
+        _agora_local() + timedelta(hours=2),
         lembrete_email_enviado_em=datetime.utcnow() - timedelta(hours=1),
     )
 
@@ -190,7 +195,7 @@ def test_agendamento_cancelado_nao_recebe_lembrete(monkeypatch, tmp_path):
     servico = _seed_servico(main, models, empresa, "Corte")
     cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email="ana@exemplo.com")
     _seed_agendamento(
-        main, models, empresa, cliente, servico, datetime.utcnow() + timedelta(hours=2), status="cancelado"
+        main, models, empresa, cliente, servico, _agora_local() + timedelta(hours=2), status="cancelado"
     )
 
     db = main.SessionLocal()
@@ -210,7 +215,7 @@ def test_agendamento_passado_nao_recebe_lembrete(monkeypatch, tmp_path):
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
     servico = _seed_servico(main, models, empresa, "Corte")
     cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email="ana@exemplo.com")
-    _seed_agendamento(main, models, empresa, cliente, servico, datetime.utcnow() - timedelta(hours=1))
+    _seed_agendamento(main, models, empresa, cliente, servico, _agora_local() - timedelta(hours=1))
 
     db = main.SessionLocal()
     try:
@@ -231,7 +236,7 @@ def test_canal_desativado_nao_recebe_lembrete(monkeypatch, tmp_path):
     )
     servico = _seed_servico(main, models, empresa, "Corte")
     cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email="ana@exemplo.com")
-    _seed_agendamento(main, models, empresa, cliente, servico, datetime.utcnow() + timedelta(hours=2))
+    _seed_agendamento(main, models, empresa, cliente, servico, _agora_local() + timedelta(hours=2))
 
     db = main.SessionLocal()
     try:
@@ -250,7 +255,7 @@ def test_cliente_sem_email_fecha_ciclo_sem_repetir_a_cada_rodada(monkeypatch, tm
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica A", "5511999999991", "instancia-a")
     servico = _seed_servico(main, models, empresa, "Corte")
     cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email=None)
-    agendamento = _seed_agendamento(main, models, empresa, cliente, servico, datetime.utcnow() + timedelta(hours=2))
+    agendamento = _seed_agendamento(main, models, empresa, cliente, servico, _agora_local() + timedelta(hours=2))
 
     db = main.SessionLocal()
     try:
@@ -287,10 +292,10 @@ def test_falha_no_envio_nao_marca_como_enviado_e_nao_interrompe_lote(monkeypatch
     cliente_falha = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email="ana@exemplo.com")
     cliente_ok = _seed_cliente(main, models, empresa, "5511900000002", "Bruno Lima", email="bruno@exemplo.com")
     agendamento_falha = _seed_agendamento(
-        main, models, empresa, cliente_falha, servico, datetime.utcnow() + timedelta(hours=1)
+        main, models, empresa, cliente_falha, servico, _agora_local() + timedelta(hours=1)
     )
     agendamento_ok = _seed_agendamento(
-        main, models, empresa, cliente_ok, servico, datetime.utcnow() + timedelta(hours=2)
+        main, models, empresa, cliente_ok, servico, _agora_local() + timedelta(hours=2)
     )
 
     lembretes.enviar_email = AsyncMock(side_effect=[lembretes.EmailError("Resend recusou o envio"), None])
@@ -321,7 +326,7 @@ def test_email_inclui_nome_servico_data_e_empresa(monkeypatch, tmp_path):
     empresa = _seed_empresa(main, models, "clinica-a", "Clínica Sorriso Feliz", "5511999999991", "instancia-a")
     servico = _seed_servico(main, models, empresa, "Corte de cabelo")
     cliente = _seed_cliente(main, models, empresa, "5511900000001", "Ana Souza", email="ana@exemplo.com")
-    data_hora = datetime.utcnow() + timedelta(hours=2)
+    data_hora = _agora_local() + timedelta(hours=2)
     _seed_agendamento(main, models, empresa, cliente, servico, data_hora)
 
     db = main.SessionLocal()
@@ -351,7 +356,7 @@ def test_reagendamento_reseta_lembrete_email_enviado_em(monkeypatch, tmp_path):
         empresa,
         cliente,
         servico,
-        datetime.utcnow() + timedelta(hours=2),
+        _agora_local() + timedelta(hours=2),
         lembrete_email_enviado_em=datetime.utcnow() - timedelta(hours=1),
     )
 

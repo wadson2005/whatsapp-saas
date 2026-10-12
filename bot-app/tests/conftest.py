@@ -37,6 +37,7 @@ APP_MODULES = [
     "core.redis_client",
     "core.schema",
     "core.security",
+    "core.tempo",
     "services",
     "services.agenda",
     "services.atendimento_humano",

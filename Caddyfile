@@ -1,3 +1,5 @@
+# Só o bot-app fica público: webhook da Evolution API, painel, onboarding e landing.
+# A Evolution API (127.0.0.1:8080) é acessada pelo bot via localhost e não deve ser exposta.
 your-domain.example.com {
-	reverse_proxy localhost:8080
+	reverse_proxy localhost:8000
 }

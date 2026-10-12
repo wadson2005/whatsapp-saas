@@ -6,6 +6,7 @@ from sqlalchemy.exc import DBAPIError
 from . import models  # noqa: F401
 from .database import Base, engine
 from .db_compat import sql_bool
+from .tempo import FUSO_PADRAO
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,7 @@ def ensure_schema():
         _add_column_if_missing(conn, "configuracao_sistema", "email_from_nome VARCHAR")
         _add_column_if_missing(conn, "empresas", "estado_conexao_whatsapp VARCHAR")
         _add_column_if_missing(conn, "empresas", "estado_conexao_atualizado_em TIMESTAMP")
+        _add_column_if_missing(conn, "empresas", f"fuso_horario VARCHAR DEFAULT '{FUSO_PADRAO}'")
         _backfill_ativado_em(conn)
         _permitir_usuario_sem_empresa(conn)
         _adicionar_unique_telefone_whatsapp(conn)

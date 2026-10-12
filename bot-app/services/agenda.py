@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta
 
 from sqlalchemy.orm import joinedload
 
 from core.models import Agendamento, ClienteFinal, Empresa, Servico
+from core.tempo import agora_local, agora_utc
 
 DEFAULT_HORARIO_ABERTURA = time(8, 0)
 DEFAULT_HORARIO_FECHAMENTO = time(18, 0)
@@ -18,8 +19,9 @@ PERIODOS = {
 }
 
 
-def _agora() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+def _agora(empresa: Empresa | None = None) -> datetime:
+    """Agora no horário local da empresa — mesma referência de `Agendamento.data_hora`."""
+    return agora_local(empresa)
 
 
 @dataclass(frozen=True)
@@ -227,7 +229,7 @@ def obter_slots_disponiveis(
     buffer_minutos = intervalo_entre_atendimentos(empresa)
     passo = timedelta(minutes=max(buffer_minutos, 5))
     duracao = timedelta(minutes=duracao_servico(servico))
-    inicio_base = inicio_busca or _agora()
+    inicio_base = inicio_busca or _agora(empresa)
     periodo_faixa = _faixa_periodo(periodo)
     agendamentos = _agendamentos_em_janela(
         db,
@@ -301,11 +303,11 @@ def validar_agendamento(
     fim_dia = datetime.combine(inicio_em.date(), fechamento)
     fim_em = inicio_em + duracao
 
-    if inicio_em < _agora():
+    if inicio_em < _agora(empresa):
         return ValidacaoAgendamento(
             False,
             "Esse horário já passou. Escolha um horário futuro.",
-            obter_slots_disponiveis(db, empresa, servico, inicio_busca=_agora(), ignorar_agendamento_id=ignorar_agendamento_id),
+            obter_slots_disponiveis(db, empresa, servico, inicio_busca=_agora(empresa), ignorar_agendamento_id=ignorar_agendamento_id),
         )
 
     if inicio_em < inicio_dia or fim_em > fim_dia:
@@ -361,18 +363,22 @@ def parsear_data_hora_texto(texto: str, base: datetime | None = None) -> datetim
     hora = int(hora_match.group(1))
     minuto = int(hora_match.group(2) or 0)
 
-    if data_match:
-        dia = int(data_match.group(1))
-        mes = int(data_match.group(2))
-        ano = int(data_match.group(3) or base.year)
-        parsed = datetime(ano, mes, dia, hora, minuto, tzinfo=timezone.utc).replace(tzinfo=None)
-        if data_match.group(3) is None and parsed < base and not hoje and not amanha:
-            parsed = parsed.replace(year=base.year + 1)
-        return parsed
+    # Data/hora impossível digitada pelo cliente ("31/02", "25h") vira "não entendi", nunca um 500.
+    try:
+        if data_match:
+            dia = int(data_match.group(1))
+            mes = int(data_match.group(2))
+            ano = int(data_match.group(3) or base.year)
+            parsed = datetime(ano, mes, dia, hora, minuto)
+            if data_match.group(3) is None and parsed < base and not hoje and not amanha:
+                parsed = parsed.replace(year=base.year + 1)
+            return parsed
 
-    if amanha or hoje:
-        dia_base = base.date() + timedelta(days=1 if amanha else 0)
-        return datetime(dia_base.year, dia_base.month, dia_base.day, hora, minuto, tzinfo=timezone.utc).replace(tzinfo=None)
+        if amanha or hoje:
+            dia_base = base.date() + timedelta(days=1 if amanha else 0)
+            return datetime(dia_base.year, dia_base.month, dia_base.day, hora, minuto)
+    except ValueError:
+        return None
 
     return None
 
@@ -463,7 +469,7 @@ def reagendar_agendamento(
 
 def cancelar_agendamento(db, agendamento: Agendamento, motivo: str | None = None) -> Agendamento:
     agendamento.status = "cancelado"
-    agendamento.cancelado_em = _agora()
+    agendamento.cancelado_em = agora_utc()
     agendamento.motivo_cancelamento = motivo
     db.commit()
     db.refresh(agendamento)

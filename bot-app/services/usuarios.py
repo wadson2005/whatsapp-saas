@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from core.models import UsuarioPainel
 from core.security import hash_senha, verificar_senha
+from core.tempo import agora_utc
 
 PAPEL_ADMIN = "admin"
 PAPEL_OPERADOR = "operador"
@@ -70,7 +71,7 @@ def solicitar_redefinicao_senha(db, email: str) -> str | None:
         return None
     token = secrets.token_urlsafe(32)
     usuario.reset_token_hash = _hash_token(token)
-    usuario.reset_token_expira_em = datetime.utcnow() + timedelta(minutes=RESET_TOKEN_TTL_MINUTOS)
+    usuario.reset_token_expira_em = agora_utc() + timedelta(minutes=RESET_TOKEN_TTL_MINUTOS)
     db.commit()
     return token
 
@@ -78,7 +79,7 @@ def solicitar_redefinicao_senha(db, email: str) -> str | None:
 def redefinir_senha(db, token: str, nova_senha: str) -> UsuarioPainel | None:
     """Troca a senha se o token existir e ainda não tiver expirado. Retorna o usuário ou `None`."""
     usuario = db.query(UsuarioPainel).filter_by(reset_token_hash=_hash_token(token), ativo=True).first()
-    if not usuario or not usuario.reset_token_expira_em or usuario.reset_token_expira_em < datetime.utcnow():
+    if not usuario or not usuario.reset_token_expira_em or usuario.reset_token_expira_em < agora_utc():
         return None
     usuario.senha_hash = hash_senha(nova_senha)
     usuario.reset_token_hash = None

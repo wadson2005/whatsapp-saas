@@ -28,6 +28,7 @@ from core.models import (
 )
 from core.rate_limit import excedeu_limite, ip_do_cliente
 from core.redis_client import redis_cliente
+from core.tempo import FUSOS_DISPONIVEIS, agora_local, agora_utc
 from integrations.email_client import EmailError, email_configurado, enviar_email
 from integrations.evolution_client import (
     EvolutionAPIConexaoError,
@@ -589,8 +590,9 @@ async def redefinir_senha_submit(request: Request, db: Session = Depends(get_db)
     )
 
 
-def _periodo_dashboard(request: Request) -> tuple[datetime, datetime]:
-    agora = datetime.utcnow()
+def _periodo_dashboard(request: Request, empresa: Empresa | None) -> tuple[datetime, datetime]:
+    # Mesmo relógio de Agendamento.data_hora (horário local da empresa).
+    agora = agora_local(empresa)
     padrao_inicio = agora - timedelta(days=30)
 
     data_inicio_str = (request.query_params.get("data_inicio") or "").strip()
@@ -619,9 +621,8 @@ async def dashboard(request: Request, db: Session = Depends(get_db), _: None = D
         )
 
     empresa_id = _query_empresa_id(request)
-    data_inicio, data_fim = _periodo_dashboard(request)
-
     empresas, empresa = _base_empresa_contexto(db, request, empresa_id)
+    data_inicio, data_fim = _periodo_dashboard(request, empresa)
     metricas_periodo = calcular_metricas(db, empresa_id, data_inicio, data_fim)
 
     status_bot = None
@@ -649,7 +650,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db), _: None = D
     atendimentos_dia = db.query(func.count(Agendamento.id)).filter(
         *( [Agendamento.empresa_id == empresa_id] if empresa_id else [] ),
         Agendamento.status != "cancelado",
-        func.date(Agendamento.data_hora) == datetime.utcnow().date(),
+        func.date(Agendamento.data_hora) == agora_local(empresa).date(),
     ).scalar() or 0
     recentes = (
         db.query(
@@ -1025,7 +1026,7 @@ async def empresa_toggle(request: Request, empresa_id: int, db: Session = Depend
     empresa = load_empresa(db, request, empresa_id)
     empresa.ativo = not empresa.ativo
     if empresa.ativo and not empresa.ativado_em:
-        empresa.ativado_em = datetime.utcnow()
+        empresa.ativado_em = agora_utc()
     db.commit()
 
     return RedirectResponse(url="/admin/empresas?message=Status da empresa atualizado.", status_code=303)
@@ -1036,7 +1037,7 @@ async def empresa_ativar(request: Request, empresa_id: int, db: Session = Depend
     empresa = load_empresa(db, request, empresa_id)
     empresa.ativo = True
     if not empresa.ativado_em:
-        empresa.ativado_em = datetime.utcnow()
+        empresa.ativado_em = agora_utc()
     db.commit()
 
     return RedirectResponse(url="/admin/configurar-bot?message=Bot ativado. Seus clientes já podem agendar pelo WhatsApp.", status_code=303)
@@ -1266,7 +1267,7 @@ async def configurar_bot_horarios_page(request: Request, db: Session = Depends(g
     return templates.TemplateResponse(
         request,
         "admin/configurar_bot_horarios.html",
-        page_context(request, title="Configure seus horários", empresa=empresa),
+        page_context(request, title="Configure seus horários", empresa=empresa, fusos=FUSOS_DISPONIVEIS),
     )
 
 
@@ -1283,6 +1284,9 @@ async def configurar_bot_horarios_submit(request: Request, db: Session = Depends
     empresa.intervalo_entre_atendimentos_minutos = parse_optional_int(form.get("intervalo_entre_atendimentos_minutos")) or 15
     empresa.dias_indisponiveis = (form.get("dias_indisponiveis") or "").strip()
     empresa.datas_indisponiveis = (form.get("datas_indisponiveis") or "").strip()
+    fuso = (form.get("fuso_horario") or "").strip()
+    if fuso in FUSOS_DISPONIVEIS:
+        empresa.fuso_horario = fuso
     db.commit()
 
     return RedirectResponse(url="/admin/configurar-bot?message=Horários atualizados com sucesso.", status_code=303)
@@ -1393,7 +1397,7 @@ async def servico_toggle(request: Request, servico_id: int, db: Session = Depend
 async def servico_delete(request: Request, servico_id: int, db: Session = Depends(get_db), _: None = Depends(require_papel_admin)):
     servico = load_servico(db, request, servico_id)
     servico.ativo = False
-    servico.excluido_em = datetime.utcnow()
+    servico.excluido_em = agora_utc()
     empresa_id = servico.empresa_id
     db.commit()
 
@@ -1606,7 +1610,7 @@ async def agendamento_status_submit(request: Request, agendamento_id: int, db: S
 
     agendamento.status = status
     if status == "cancelado":
-        agendamento.cancelado_em = datetime.utcnow()
+        agendamento.cancelado_em = agora_utc()
     db.commit()
     empresa_id = agendamento.empresa_id
 

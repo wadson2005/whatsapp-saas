@@ -4,6 +4,17 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ## [Unreleased]
 
+### Corrigido (fuso horário da agenda, do bot e dos lembretes)
+
+- **Bug visível ao cliente**: a agenda (`services/agenda.py`) comparava os horários de agendamento — que são horário local da empresa — com o relógio **UTC**, e a checagem de horário de resposta do bot (`conversa._empresa_horario_disponivel`) usava o relógio **do servidor** (UTC dentro do container). Em Brasília, isso escondia os horários das 08:00–10:00 até as 10:00, deixava o cliente agendar em horários que já tinham passado e fazia o bot responder "fora do horário" a partir das 15:00.
+- Novo `core/tempo.py` com a convenção explícita: `agora_local(empresa)` para tudo que é comparado com a agenda e `agora_utc()` para timestamps de auditoria (substitui todos os `datetime.utcnow()`, deprecated desde o Python 3.12).
+- `Empresa.fuso_horario` (IANA, padrão `America/Sao_Paulo`, migração idempotente em `core/schema.py`), editável em `/admin/configurar-bot/horarios` entre os quatro fusos do Brasil; valor fora da lista é ignorado.
+- Lembretes passam a calcular a janela de antecedência no horário local de cada empresa. Dashboard ("agendamentos de hoje" e período padrão) idem.
+- `parsear_data_hora_texto` não derruba mais o webhook com `500` quando o cliente digita uma data/hora impossível ("31/02 às 10h", "25h") — vira "não entendi" como qualquer texto não reconhecido.
+- `tzdata` adicionado a `requirements.txt` (necessário para `zoneinfo` em Windows e imagens sem base de fusos).
+- `Caddyfile` apontava para a Evolution API (`localhost:8080`); agora aponta para o bot (`localhost:8000`), que é quem recebe webhook, painel e onboarding. A Evolution continua acessível só via localhost.
+- Testes: `tests/test_fuso_horario.py` (12 casos, relógio fixo em 07:00 de Brasília) e `tests/test_lembretes.py` ajustado para semear `data_hora` no horário local (antes semeava em UTC, codificando o comportamento incorreto).
+
 ### Alterado (CI, configuração de testes e Meta opcional)
 
 - **CI no GitHub Actions** (`.github/workflows/ci.yml`): `ruff check bot-app` + `pytest` em Python 3.12 a cada push no `master` e em todo PR.

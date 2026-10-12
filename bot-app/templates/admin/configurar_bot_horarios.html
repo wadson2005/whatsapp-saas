@@ -18,6 +18,15 @@
           <input type="time" name="horario_fechamento" id="campo-fechamento" class="form-control" value="{{ empresa.horario_fechamento or '18:00' }}" />
         </div>
         <div class="col-12">
+          <label class="form-label" for="campo-fuso">Fuso horário</label>
+          <select name="fuso_horario" id="campo-fuso" class="form-select">
+            {% for valor, rotulo in fusos.items() %}
+            <option value="{{ valor }}" {% if (empresa.fuso_horario or 'America/Sao_Paulo') == valor %}selected{% endif %}>{{ rotulo }}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">Os horários acima, a agenda e os lembretes seguem este fuso.</div>
+        </div>
+        <div class="col-12">
           <label class="form-label" for="campo-intervalo">Intervalo entre atendimentos (minutos)</label>
           <input type="number" name="intervalo_entre_atendimentos_minutos" id="campo-intervalo" class="form-control" min="0" step="1" value="{{ empresa.intervalo_entre_atendimentos_minutos or 15 }}" />
           <div class="form-text">Tempo mínimo entre um agendamento e outro — evita horários colados demais.</div>

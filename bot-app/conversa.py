@@ -9,6 +9,7 @@ from ai.models import Intent
 from ai.service import criar_ai_service
 from core.models import Agendamento, ClienteFinal, Empresa, Servico
 from core.redis_client import redis_cliente
+from core.tempo import agora_local, agora_utc
 from integrations.evolution_client import enviar_botoes, enviar_texto
 from services.agenda import (
     agendar_servico,
@@ -19,8 +20,8 @@ from services.agenda import (
     reagendar_agendamento,
 )
 from services.atendimento_humano import registrar_solicitacao_atendimento
-from services.conhecimento import buscar_resposta
 from services.configuracoes import obter_configuracao, parse_activation_words
+from services.conhecimento import buscar_resposta
 from services.metricas import registrar_conversa_iniciada
 from services.texto_utils import normalizar_texto
 
@@ -80,7 +81,8 @@ def _empresa_horario_disponivel(empresa: Empresa) -> bool:
     if not empresa.atendimento_automatico_ativo:
         return False
 
-    agora = datetime.now().time()
+    agora_empresa = agora_local(empresa)
+    agora = agora_empresa.time()
     inicio = _parse_horario(empresa.horario_resposta_inicio, "08:00")
     fim = _parse_horario(empresa.horario_resposta_fim, "18:00")
     if inicio <= fim and not (inicio <= agora <= fim):
@@ -101,7 +103,7 @@ def _empresa_horario_disponivel(empresa: Empresa) -> bool:
             for parte in dias_funcionamento.split(",")
             if parte.strip().isdigit()
         }
-        if dias and datetime.now().weekday() not in dias:
+        if dias and agora_empresa.weekday() not in dias:
             return False
 
     return True
@@ -130,7 +132,7 @@ def obter_estado(empresa_id: int, numero: str) -> dict:
 
 def salvar_estado(empresa_id: int, numero: str, passo: str, contexto: dict, ttl_segundos: int | None = None):
     estado_atual = obter_estado(empresa_id, numero)
-    inicio_em = estado_atual.get("inicio_em") or datetime.utcnow().isoformat()
+    inicio_em = estado_atual.get("inicio_em") or agora_utc().isoformat()
     dado = json.dumps({"passo": passo, "contexto": contexto, "inicio_em": inicio_em})
     redis_cliente.set(_chave_estado(empresa_id, numero), dado, ex=ttl_segundos or TEMPO_EXPIRACAO_SEGUNDOS)
 
@@ -741,7 +743,7 @@ async def _slot_escolhido(db, empresa: Empresa, numero: str, texto: str, context
 
     inicio_em = _id_slot_para_datetime(id_interacao)
     if inicio_em is None:
-        inicio_em = parsear_data_hora_texto(texto)
+        inicio_em = parsear_data_hora_texto(texto, base=agora_local(empresa))
 
     if inicio_em is None:
         await enviar_botoes(
@@ -832,7 +834,7 @@ async def _horario_texto_livre(db, empresa: Empresa, numero: str, texto: str, co
         limpar_estado(empresa.id, numero)
         return
 
-    inicio_em = parsear_data_hora_texto(texto)
+    inicio_em = parsear_data_hora_texto(texto, base=agora_local(empresa))
     if inicio_em is None:
         await enviar_botoes(
             instance=empresa.evolution_instance_name,
@@ -962,7 +964,7 @@ async def _reagendar_slot_escolhido(db, empresa: Empresa, numero: str, texto: st
         )
         return
 
-    inicio_em = _id_slot_para_datetime(id_interacao) or parsear_data_hora_texto(texto)
+    inicio_em = _id_slot_para_datetime(id_interacao) or parsear_data_hora_texto(texto, base=agora_local(empresa))
     if inicio_em is None:
         await enviar_botoes(
             instance=empresa.evolution_instance_name,
